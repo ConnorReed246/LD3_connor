@@ -200,15 +200,16 @@ class ODESolver(ABC):
         """
         Return the noise prediction model.
         """
-        return self.model(x, t)
+        return self.model(x, t) #TODO this is where we call the model to predict the noise
 
     def data_prediction_fn(self, x, t):
         """
         Return the data prediction model (with corrector).
         """
-        noise = self.noise_prediction_fn(x, t)
+        noise = self.noise_prediction_fn(x, t) #TODO Noise prediction step
         alpha_t, sigma_t = self.noise_schedule.marginal_alpha(t), self.noise_schedule.marginal_std(t)
-        x0 = (x - sigma_t * noise) / alpha_t
+        x0 = (x - sigma_t * noise) / alpha_t ##remove noise from the data	
+        # TODO add visualisation of x0
         if self.correcting_x0_fn is not None:
             x0 = self.correcting_x0_fn(x0)
         return x0

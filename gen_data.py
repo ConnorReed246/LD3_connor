@@ -139,7 +139,7 @@ def main(args):
             conditioning = None
             conditioned_unconditioning = None 
 
-        img_teacher = generator.sample(wrapped_model, decoding_fn, latents, conditioning, conditioned_unconditioning)
+        img_teacher = generator.sample(wrapped_model, decoding_fn, latents, conditioning, conditioned_unconditioning) #TODO is this an important step?
 
         img_teacher = img_teacher.detach().cpu().view(batch_size, img_channel, img_resolution, img_resolution)
         latents = latents.detach().cpu()
@@ -151,9 +151,9 @@ def main(args):
                 c = conditioning[i] if conditioning is not None else None
                 uc = conditioned_unconditioning[i] if conditioned_unconditioning is not None else None
                 data = dict(latent=latent, img=img, c=c, uc=uc)
-                torch.save(data, os.path.join(data_dir, f"latent_{(count + i):06d}.pt"))
+                torch.save(data, os.path.join(data_dir, f"latent_{(count + i):06d}.pt")) 
 
-        if args.save_png:
+        if args.save_png:#TODO this is how we save the images
             samples_raw = inverse_scalar(img_teacher)
             samples = np.clip(
                 samples_raw.permute(0, 2, 3, 1).cpu().numpy() * 255.0, 0, 255

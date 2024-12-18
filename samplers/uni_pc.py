@@ -111,7 +111,7 @@ class UniPC(ODESolver):
         x_t_ = (
             sigma_t / sigma_prev_0 * x
             - alpha_t * h_phi_1 * model_prev_0
-        )
+        ) #TODO apply noise correction
         if x_t is None:
             if use_predictor:
                 pred_res = einsum_float_double('k,bkchw->bchw', rhos_p, D1s) # D1s float64, rhos_p float32
