@@ -139,7 +139,7 @@ def main(args):
             conditioning = None
             conditioned_unconditioning = None 
 
-        img_teacher = generator.sample(wrapped_model, decoding_fn, latents, conditioning, conditioned_unconditioning) #TODO is this an important step?
+        img_teacher = generator.sample(wrapped_model, decoding_fn, latents, conditioning, conditioned_unconditioning) 
 
         img_teacher = img_teacher.detach().cpu().view(batch_size, img_channel, img_resolution, img_resolution)
         latents = latents.detach().cpu()

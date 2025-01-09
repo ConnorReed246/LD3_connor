@@ -613,7 +613,6 @@ def degradation_bsrgan_variant(image, sf=4, isp_model=None):
     return example
 
 
-# TODO incase there is a pickle error one needs to replace a += x with a = a + x in add_speckle_noise etc...
 def degradation_bsrgan_plus(img, sf=4, shuffle_prob=0.5, use_sharp=True, lq_patchsize=64, isp_model=None):
     """
     This is an extended degradation model by combining

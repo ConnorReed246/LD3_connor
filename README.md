@@ -72,7 +72,7 @@ CUDA_VISIBLE_DEVICES=0 python3 gen_data.py \
 ```bash
 CUDA_VISIBLE_DEVICES=0 python3 main.py \
                     --all_config configs/cifar10.yml \
-                    --data_dir train_data/train_data_cifar10/uni_pc_NFE20_edm \
+                    --data_dir train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0 \
                     --num_train 50 --num_valid 50 \
                     --main_train_batch_size 1 \
                     --main_valid_batch_size 10 \

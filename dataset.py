@@ -9,7 +9,7 @@ def load_data_from_dir(
 ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[Optional[torch.Tensor]], List[Optional[torch.Tensor]]]:
     latents, targets, conditions, unconditions = [], [], [], []
     pt_files = [f for f in os.listdir(data_folder) if f.endswith('pt')]
-    for file_name in sorted(pt_files)[:limit]:
+    for file_name in sorted(pt_files)[:limit]: #load all training files previously created
         file_path = os.path.join(data_folder, file_name)
         data = torch.load(file_path)
         latents.append(data["latent"])

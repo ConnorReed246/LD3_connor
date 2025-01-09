@@ -236,7 +236,7 @@ class LD3Trainer:
     def _create_train_loader(self):
         self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn)
     
-    def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False):
+    def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): 
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution)
         dis_model = discretize_model_wrapper(
@@ -250,7 +250,7 @@ class LD3Trainer:
         )
 
         if timesteps is None:
-            timesteps1, timesteps2 = dis_model()
+            timesteps1, timesteps2 = dis_model() #add latent here to get timesteps
         else:
             timesteps1 = timesteps
             timesteps2 = timesteps
@@ -278,7 +278,7 @@ class LD3Trainer:
             unconditional_condition=uncondition,
             **self.solver_extra_params,
         )
-        x_next_ = self.decoding_fn(x_next_)
+        x_next_ = self.decoding_fn(x_next_) # this is x'_0
         self.loss_vector = self.loss_fn(img.float(), x_next_.float()).squeeze()
         loss = self.loss_vector.mean()
         logging.info(f"{self._current_version} Loss: {loss.item()}")
@@ -293,7 +293,7 @@ class LD3Trainer:
     def _is_in_version_1(self):
         return self.cur_round < self.training_rounds_v1
 
-    def _compute_baseline(self):
+    def _compute_baseline(self): 
         self.straight_line = torch.linspace(self.lambda_min, self.lambda_max, self.steps + 1)
         self.time_logSNR = self.noise_schedule.inverse_lambda(self.straight_line).to(self.device)        
         time_max = self.noise_schedule.inverse_lambda(self.lambda_min)
@@ -328,7 +328,7 @@ class LD3Trainer:
                     condition = condition.to(self.device)
                 if uncondition is not None:
                     uncondition = uncondition.to(self.device)
-                loss, output, target = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=True)
+                loss, output, target = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=True) #TODO here we outpus output and target and anaylse the differnce?
                 
                 total_loss += loss.item()
                 count += 1

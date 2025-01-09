@@ -70,8 +70,7 @@ def main(args):
         noise_schedule=noise_schedule,
         unipc_variant=args.unipc_variant,
     )
-
-    latents, targets, conditions, unconditions = load_data_from_dir(
+    latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig
         data_folder=args.data_dir, limit=args.num_train + args.num_valid
     )
     ori_latents = [latent.clone() for latent in latents]

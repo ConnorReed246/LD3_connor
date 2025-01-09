@@ -53,7 +53,7 @@ def parse_prior_timesteps(args):
     if args.use_gits and args.solver_name in PRIOR_TIMESTEPS and args.steps in PRIOR_TIMESTEPS[args.solver_name]:
         args.gits_ts = PRIOR_TIMESTEPS[args.solver_name][args.steps]
 
-def set_seed_everything(seed):
+def set_seed_everything(seed): 
     random.seed(seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
