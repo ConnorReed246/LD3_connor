@@ -155,7 +155,7 @@ def main(args):
 
         if args.save_png:#TODO this is how we save the images
             samples_raw = inverse_scalar(img_teacher)
-            samples = np.clip(
+            samples = np.clip(  #10 because of batch size
                 samples_raw.permute(0, 2, 3, 1).cpu().numpy() * 255.0, 0, 255
             ).astype(np.uint8)
             images_np = samples.reshape((-1, img_resolution, img_resolution, img_channel))

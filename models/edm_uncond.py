@@ -28,7 +28,10 @@ def get_pretrained_sde_model(args, requires_grad=False):
     
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     with open(args.ckp_path, "rb") as f:
+        #load the pytorch model
         net = pickle.load(f)["ema"].to(device)
+    
+    #set gradient tracking to false to avoid unnecessary computation
     if not requires_grad:
         for param in net.parameters():
             param.requires_grad = False

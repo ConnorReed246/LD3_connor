@@ -238,8 +238,8 @@ class LD3Trainer:
     
     def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): 
         batch_size = latent.shape[0]
-        latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution)
-        dis_model = discretize_model_wrapper(
+        latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
+        dis_model = discretize_model_wrapper( #TODO change this to U-net etc.
             self.params1,
             self.params2,
             self.lambda_max,
@@ -250,7 +250,7 @@ class LD3Trainer:
         )
 
         if timesteps is None:
-            timesteps1, timesteps2 = dis_model() #add latent here to get timesteps
+            timesteps1, timesteps2 = dis_model() #TODO add latent here to get timesteps
         else:
             timesteps1 = timesteps
             timesteps2 = timesteps
@@ -266,7 +266,7 @@ class LD3Trainer:
         self.logSNR1 = lamb1.detach().cpu()
         self.logSNR2 = lamb2.detach().cpu()
 
-        x_next_ = self.noise_schedule.prior_transformation(latent)  # bs x 3 x 32 x 32
+        x_next_ = self.noise_schedule.prior_transformation(latent)  # batch size x 3 x 32 x 32
         x_next_ = self.solver.sample_simple(
             model_fn=self.net,
             x=x_next_,

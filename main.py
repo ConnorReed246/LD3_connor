@@ -47,6 +47,7 @@ def main(args):
         args.use_ema = False 
 
     set_seed_everything(args.seed)
+    #load model and set grad to false, wrap as model that predicts noise, ingnore net, image_resolution, and image_channels 
     wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
 
     adjust_hyper(args, latent_resolution, latent_channel)
@@ -63,6 +64,7 @@ def main(args):
     setup_logging(log_dir)
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    #UniPC: A Unified Predictor-Corrector Framework for Fast Sampling of Diffusion Models -> used to increase sampling speed
     solver, steps, solver_extra_params = get_solvers(
         args.solver_name,
         NFEs=args.steps,
@@ -70,7 +72,7 @@ def main(args):
         noise_schedule=noise_schedule,
         unipc_variant=args.unipc_variant,
     )
-    latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig
+    latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
         data_folder=args.data_dir, limit=args.num_train + args.num_valid
     )
     ori_latents = [latent.clone() for latent in latents]
