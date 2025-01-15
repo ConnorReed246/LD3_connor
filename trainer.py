@@ -4,19 +4,19 @@ from dataclasses import dataclass
 import torch 
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
+import torchvision
 
 import lpips 
 import logging
 import matplotlib.pyplot as plt
-import imageio, PIL
+import imageio
 
 import os 
-import math 
 import pickle
 import numpy as np 
 
 from dataset import LD3Dataset
-from utils import move_tensor_to_device, compute_distance_between_two, compute_distance_between_two_L1
+from utils import move_tensor_to_device, compute_distance_between_two, compute_distance_between_two_L1, visual, Tensorboard_Logger,tensor_to_image
 
 def save_gif(snapshot_path: str):
     care_files = [f for f in os.listdir(snapshot_path) if "log_best" in f]
@@ -27,22 +27,6 @@ def save_gif(snapshot_path: str):
     imageio.mimsave(os.path.join(snapshot_path, "gif.gif"), images, duration=100.)
     print(f"Saved gif to {os.path.join(snapshot_path, 'gif.gif')}")
 
-
-def visual(input_, name="test.png", img_resolution=32, img_channels=3):
-    input_ = (input_ + 1.) / 2.
-    batch_size = input_.shape[0]
-    gridh = int(math.sqrt(batch_size))
-    
-    for i in range(1, gridh+1):
-        if batch_size % i == 0:
-            gridh = i
-    
-    gridw = batch_size // gridh
-    image = (input_ * 255.).clip(0, 255).to(torch.uint8)
-    image = image.reshape(gridh, gridw, *image.shape[1:]).permute(0, 3, 1, 4, 2)
-    image = image.reshape(gridh * img_resolution, gridw * img_resolution, img_channels)
-    image = image.cpu().numpy()
-    PIL.Image.fromarray(image, 'RGB').save(name)
 
 def custom_collate_fn(batch):
     collated_batch = []
@@ -147,12 +131,14 @@ class LD3Trainer:
         self.snapshot_path = model_config.snapshot_path
         os.makedirs(self.snapshot_path, exist_ok=True)
         self.visualize = training_config.visualize
+        if Tensorboard_Logger.writer_exists(): 
+            self.writer = Tensorboard_Logger.get_writer()
 
         # Device and optimizer setup
         self._set_device(model_config.device)
         self.params1, self.params2 = self._initialize_params()
         self.optimizer_lamb1 = torch.optim.RMSprop(
-            [self.params1],
+            [self.params1], #these are the lambdas (can be converted to time steps)
             lr=training_config.lr_time_1,
             momentum=training_config.momentum_time_1,
             weight_decay=training_config.weight_decay_time_1,
@@ -259,6 +245,7 @@ class LD3Trainer:
             tst = torch.cat([timesteps1, timesteps2], dim=0).detach().cpu()
             torch.save(tst, os.path.join(self.snapshot_path, f"t_steps.pt"))
 
+        #calculate timesteps from lambdas
         self.t_steps1 = timesteps1.detach()
         self.t_steps2 = timesteps2.detach()
         lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
@@ -267,6 +254,7 @@ class LD3Trainer:
         self.logSNR2 = lamb2.detach().cpu()
 
         x_next_ = self.noise_schedule.prior_transformation(latent)  # batch size x 3 x 32 x 32
+        #with timesteps calculate x_next_
         x_next_ = self.solver.sample_simple(
             model_fn=self.net,
             x=x_next_,
@@ -281,7 +269,7 @@ class LD3Trainer:
         x_next_ = self.decoding_fn(x_next_) # this is x'_0
         self.loss_vector = self.loss_fn(img.float(), x_next_.float()).squeeze()
         loss = self.loss_vector.mean()
-        logging.info(f"{self._current_version} Loss: {loss.item()}")
+        logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
 
         return loss, x_next_.float(), img.float()
 
@@ -344,6 +332,7 @@ class LD3Trainer:
     
     def _visual_times(self) -> None:
         """
+
             Visualize time discretization of baselines and ours
         """
 
@@ -398,15 +387,12 @@ class LD3Trainer:
 
     def _examine_checkpoint(self, iter: int) -> None:
         logging.info(f"{self._current_version} Saving snapshot at iter {iter}")
-        total_loss, output, target = self._run_validation()
-
-        if (iter % 5 == 0 or total_loss < self.best_loss) and self.visualize:
-            visual(torch.cat([output[:8], target[:8]], dim=0), os.path.join(self.snapshot_path, f"learned_newnoise_ep{iter}.png"), img_resolution=self.resolution)
-            
-        if total_loss < self.best_loss: # latent cua valid k doi trong luc train. 
+        total_loss, output, target = self._run_validation() # get loss, output and target of validation set
+        
+        if total_loss < self.best_loss:
             self.best_loss = total_loss
             self.count_worse = 0
-            self._save_checkpoint()
+            self._save_checkpoint() #saves self.params1.data and best_t_steps
             self._visual_times()
             save_gif(self.snapshot_path)
         else:
@@ -415,6 +401,38 @@ class LD3Trainer:
         
         logging.info(f"{self._current_version} Validation loss: {total_loss}, best loss: {self.best_loss}")
         logging.info(f"{self._current_version} Iter {iter} snapshot saved!")
+        
+        ##################### Tensorboard logging #####################
+
+        layout = {
+            "Timesteps": {
+                "timestep": ["Multiline", ["timestep/" + str(i) for i in range(len(self.t_steps1))]],
+            },
+        }
+        self.writer.add_custom_scalars(layout)
+
+        if self.writer:
+            self.writer.add_scalar(f"Validation/Loss", total_loss, iter)
+            self.writer.add_scalar(f"Validation/Best_Loss", self.best_loss, iter)
+
+            if iter == 0:
+                grid = torchvision.utils.make_grid(tensor_to_image(target[:8]))
+                self.writer.add_image('Validation/Target', grid, iter)
+            # if (iter % 5 == 0):
+            #     # visual(torch.cat([output[:8], target[:8]], dim=0), os.path.join(self.snapshot_path, f"learned_newnoise_ep{iter}.png"), img_resolution=self.resolution)
+            #     grid = torchvision.utils.make_grid(tensor_to_image(output[:8]))
+            #     self.writer.add_image('Validation/Output', grid, iter)
+            if self.count_worse == 0:
+                grid = torchvision.utils.make_grid(tensor_to_image(output[:8]))
+                self.writer.add_image('Validation/Output', grid, iter)
+
+                for i in range(len(self.t_steps1)):
+                    self.writer.add_scalar(f"timestep/{i}", self.t_steps1[i], iter)
+                # self.writer.add_histogram("Timesteps/Distribution", torch.cat([self.t_steps1, self.t_steps2], dim=0), iter)
+
+
+        ##########################################'#####################
+            
         
         if self.count_worse >= self.patient:
             logging.info(f"{self._current_version} Loading best model")
@@ -496,7 +514,7 @@ class LD3Trainer:
             self._load_checkpoint(reload_data=False)
             self.count_worse = 0
         
-        self._examine_checkpoint(self.cur_iter) # run evaluation current latent and time steps
+        self._examine_checkpoint(self.cur_iter) # run validation on current latent and time steps
 
         for loader_idx, loader in enumerate([self.train_loader, self.valid_loader]):
             if loader_idx == 1 and self.prior_bound == 0.0:
@@ -505,25 +523,25 @@ class LD3Trainer:
             self._set_trainable_params(is_train=loader_idx == 0, is_no_v1=self.no_v1)
             
             ori_latents, latents, targets, conditions, unconditions = [], [], [], [], []
-            for img, latent, ori_latent, condition, uncondition in loader:
+            for img, latent, ori_latent, condition, uncondition in loader: #4 at a time
                 img, latent, ori_latent, condition, uncondition = move_tensor_to_device(img, latent, ori_latent, condition, uncondition, device=self.device)
                 if loader_idx == 1:
                     self._log_valid_distance(ori_latent, latent)
                 
                 # Flattent latents
                 batch_size = ori_latent.shape[0]
-                ori_latent = ori_latent.reshape(batch_size, -1)
+                ori_latent = ori_latent.reshape(batch_size, -1) # torch.Size([1, 3072])
                 latent_to_update = latent.clone().detach().reshape(batch_size, -1).to(self.device)
                 latent_params = torch.nn.Parameter(latent_to_update)
                 latent_params.requires_grad = True
         
                 latent_optimizer = torch.optim.SGD([latent_params], lr=self.shift_lr)
-                if img.device != latent_params.device:
-                    breakpoint()
+
                 loss, _, _ = self._solve_ode(img=img, latent=latent_params, condition=condition, uncondition=uncondition, valid=False)
                 loss_vector_ref = self.loss_vector.clone().detach()
                 loss.backward()
                 logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
+                self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
                 
                 latent_optimizer.step()
                 latent_optimizer.zero_grad()
@@ -531,7 +549,12 @@ class LD3Trainer:
                 if loader_idx == 0:
                     torch.nn.utils.clip_grad_norm_(self.params1, 1.0)
                     torch.nn.utils.clip_grad_norm_(self.params2, 1.0)
-                    self.optimizer_lamb1.step()
+
+                    self.optimizer_lamb1.step() #does this ever change?
+                    ##################### TENSORBOARD #####################
+                    for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
+                        self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
+                    #######################################################
                     self.optimizer_lamb1.zero_grad()
                     self.optimizer_lamb2.step()
                     self.optimizer_lamb2.zero_grad()
@@ -561,7 +584,7 @@ class LD3Trainer:
                     conditions.append(condition[j] if condition is not None else None)
                     unconditions.append(uncondition[j] if uncondition is not None else None)
                 
-            # update dataset
+            # update dataset TODO we don't want to do this right?
             if self.prior_bound > 0:
                 self._update_dataloader(ori_latents, latents, targets, conditions, unconditions, is_train=loader_idx==0)
             

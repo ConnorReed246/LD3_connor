@@ -14,7 +14,8 @@ from utils import (
     parse_arguments,
     adjust_hyper,
     save_arguments_to_yaml,
-    set_seed_everything
+    set_seed_everything,
+    Tensorboard_Logger
 )
 from models import prepare_stuff
 
@@ -41,7 +42,7 @@ def setup_logging(log_dir):
 
 
 def main(args):
-
+    start = time.time()
     if args.use_ema:
         print("Auto update use_ema to False for training")
         args.use_ema = False 
@@ -54,14 +55,27 @@ def main(args):
     desc = create_desc(args)
 
     log_dir = os.path.join(args.log_path, desc)
+
     if is_trained(log_dir):
-        print("Skip training")
-        return
+
+        if args.force_train:
+            print("Retraining and removing old logs")
+            for root, dirs, files in os.walk(log_dir):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+                for dir in dirs:
+                    os.rmdir(os.path.join(root, dir))
+        else:
+            print("Skip training")
+            return
     else:
         print("The model hasn't been trained yet. Perform training")
     os.makedirs(log_dir, exist_ok=True)
     save_arguments_to_yaml(args, os.path.join(log_dir, "config.yml"))
     setup_logging(log_dir)
+
+    if args.use_tensorboard:
+        writer = Tensorboard_Logger.get_writer(log_dir = "runs/" + desc + "_" + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start)))
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     #UniPC: A Unified Predictor-Corrector Framework for Fast Sampling of Diffusion Models -> used to increase sampling speed
@@ -135,10 +149,19 @@ def main(args):
     )
     trainer = LD3Trainer(model_config, training_config)
 
-    start = time.time()
+    
+
+    if writer: 
+        writer.add_text("Process/Description", f"""
+                        Parameters: {desc}
+                        Device: {device}
+                        Start Time: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start))}
+                        """)
+        
     trainer.train(args.training_rounds_v1, args.training_rounds_v2)
     end = time.time()
     logging.info(f"Training time: {end - start}")
+    Tensorboard_Logger.close()
 
 
 if __name__ == "__main__":

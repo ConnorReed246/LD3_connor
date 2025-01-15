@@ -1,6 +1,10 @@
+import math
 from typing import Optional
+import PIL
+import matplotlib.pyplot as plt
 import torch
 import os
+from torch.utils.tensorboard import SummaryWriter
 
 from samplers.uni_pc import UniPC
 from samplers.heun import Heun
@@ -79,6 +83,7 @@ def parse_arguments():
     training_group.add_argument("--seed", type=int, help="seed")
     training_group.add_argument("--use_ema",  action="store_true", help="If we use ema for LSUN latent diff")
     training_group.add_argument("--log_path", type=str, help="Folder name for storing evaluation results.")
+    training_group.add_argument("--use_tensorboard", type=bool, default="True", help="Use tensorboard or not.")
     training_group.add_argument("--old_log_path", type=str, help="Folder name for storing old evaluation results.")
     training_group.add_argument("--data_dir", type=str, help="Path to data dir.")
     training_group.add_argument("--num_train", type=int, help="Number of training sample.")
@@ -127,6 +132,7 @@ def parse_arguments():
     other_group = parser.add_argument_group('Other Parameters')
     other_group.add_argument("--prompt_path", type=str, help="Prompt json path for stable diff")
     other_group.add_argument("--num_prompts", type=int, default=5, help="Number of prompts we want to use, default 5")
+    other_group.add_argument("--force_train", type = bool, default=False, help="Force retrain or not")
     args = parser.parse_args()
 
     # Load the config file if specified
@@ -290,3 +296,57 @@ def is_trained(path):
 
 def move_tensor_to_device(*args, device):
     return [arg.to(device) if arg is not None else arg for arg in args]
+
+
+def visual(input_, name = "test.png", img_resolution=32, img_channels=3):
+    input_ = (input_ + 1.) / 2.
+    batch_size = input_.shape[0]
+    gridh = int(math.sqrt(batch_size))
+
+    for i in range(1, gridh+1):
+        if batch_size % i == 0:
+            gridh = i
+
+    gridw = batch_size // gridh
+    image = (input_ * 255.).clip(0, 255).to(torch.uint8)
+    image = image.reshape(gridh, gridw, *image.shape[1:]).permute(0, 3, 1, 4, 2)
+    image = image.reshape(gridh * img_resolution, gridw * img_resolution, img_channels)
+    image = image.cpu().numpy()
+
+    #doesn't work remotely
+    if name is None:
+        plt.imshow(image)
+        plt.axis('off')  # Optional: Hide axes for cleaner visualization
+        plt.show()
+    else:
+        PIL.Image.fromarray(image, 'RGB').save(name)
+
+
+class Tensorboard_Logger:
+    """Creates a tensorboard writer and provides a static method to access it.
+    """    
+    _writer = None
+
+    @staticmethod
+    def get_writer(log_dir='runs/default') -> SummaryWriter:
+        if Tensorboard_Logger._writer is None:
+            Tensorboard_Logger._writer = SummaryWriter(log_dir=log_dir)
+        return Tensorboard_Logger._writer
+    
+    @staticmethod
+    def writer_exists() -> bool:
+        return Tensorboard_Logger._writer is not None
+
+    @staticmethod
+    def close() -> None:
+        if Tensorboard_Logger._writer:
+            Tensorboard_Logger._writer.close()
+            Tensorboard_Logger._writer = None
+    
+
+def tensor_to_image(img) :
+    """converts tensor values to image values
+    """    
+    image = (img + 1.) / 2.
+    image = (image * 255.).clip(0, 255).to(torch.uint8)
+    return image

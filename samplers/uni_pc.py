@@ -175,7 +175,7 @@ class UniPC(ODESolver):
         for step in range(1, order):
             t1 = timesteps[step]
             t2 = timesteps2[step]
-            x = self.one_step(t1, t2, t_prev_list, model_prev_list, step, x, order, first=True)
+            x = self.one_step(t1, t2, t_prev_list, model_prev_list, step, x, order, first=True) #this is noise
             if return_intermediates:
                 x_list.append(x)
         
@@ -195,5 +195,5 @@ class UniPC(ODESolver):
                 x_list.append(x)
         if return_intermediates:
             return x_list
-        return x
+        return x #this is the image
 
