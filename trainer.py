@@ -16,6 +16,7 @@ import pickle
 import numpy as np 
 
 from dataset import LD3Dataset
+from latent_to_timestep_model import LTT_model
 from utils import move_tensor_to_device, compute_distance_between_two, compute_distance_between_two_L1, visual, Tensorboard_Logger,tensor_to_image
 
 def save_gif(snapshot_path: str):
@@ -146,6 +147,10 @@ class LD3Trainer:
         self.optimizer_lamb2 = torch.optim.SGD(
             [self.params2], lr=training_config.lr_time_2
         )
+
+        self.ltt_model = LTT_model()
+        self.ltt_model = self.ltt_model.to(self.device)
+
         self.prior_timesteps = training_config.prior_timesteps
         self.match_prior = training_config.match_prior
 
@@ -163,6 +168,9 @@ class LD3Trainer:
         self.loss_type = training_config.loss_type
         self.loss_fn = self._initialize_loss_fn()
         self.loss_vector = None
+
+
+
 
 
     def _train_to_match_prior(self, prior_timesteps=None):
@@ -225,7 +233,13 @@ class LD3Trainer:
     def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): 
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
-        dis_model = discretize_model_wrapper( #TODO change this to U-net etc.
+        
+        params1_list = []
+        for i in range (batch_size):
+            params1_list.append(self.params1)
+            
+
+        dis_model = discretize_model_wrapper( #TODO change this to U-net etc.?
             self.params1,
             self.params2,
             self.lambda_max,
@@ -234,6 +248,10 @@ class LD3Trainer:
             self.time_mode,
             self.win_rate,
         )
+
+
+
+
 
         if timesteps is None:
             timesteps1, timesteps2 = dis_model() #TODO add latent here to get timesteps
@@ -267,7 +285,7 @@ class LD3Trainer:
             **self.solver_extra_params,
         )
         x_next_ = self.decoding_fn(x_next_) # this is x'_0
-        self.loss_vector = self.loss_fn(img.float(), x_next_.float()).squeeze()
+        self.loss_vector = self.loss_fn(img.float(), x_next_.float()).squeeze()   #Custom Loss Function: To ensure the timesteps are decreasing, you can define a custom loss function that penalizes outputs that do not meet this criterion. For instance, you can use a term that penalizes differences between consecutive elements if they are not negative.
         loss = self.loss_vector.mean()
         logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
 
@@ -524,6 +542,13 @@ class LD3Trainer:
             
             ori_latents, latents, targets, conditions, unconditions = [], [], [], [], []
             for img, latent, ori_latent, condition, uncondition in loader: #4 at a time
+
+                ############################## TENSORBOARD ##############################
+                if loader_idx == 0 and self.cur_iter == 0:
+                    latent = latent.to(self.device)
+                    self.writer.add_graph(self.ltt_model, latent)
+                ########################################################################
+
                 img, latent, ori_latent, condition, uncondition = move_tensor_to_device(img, latent, ori_latent, condition, uncondition, device=self.device)
                 if loader_idx == 1:
                     self._log_valid_distance(ori_latent, latent)
@@ -651,3 +676,8 @@ def discretize_model_wrapper(input1, input2, lambda_max, lambda_min, noise_sched
         return time1, time2
 
     return model_time_fn if mode == 'time' else model_lambda_fn
+
+
+
+
+
