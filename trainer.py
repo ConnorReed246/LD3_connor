@@ -541,7 +541,7 @@ class LD3Trainer:
             self._set_trainable_params(is_train=loader_idx == 0, is_no_v1=self.no_v1)
             
             ori_latents, latents, targets, conditions, unconditions = [], [], [], [], []
-            for img, latent, ori_latent, condition, uncondition in loader: #4 at a time
+            for img, latent, ori_latent, condition, uncondition in loader: #1 at a time in validation
 
                 ############################## TENSORBOARD ##############################
                 if loader_idx == 0 and self.cur_iter == 0:
