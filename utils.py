@@ -95,18 +95,14 @@ def parse_arguments():
     training_group.add_argument("--fix_bound", action="store_true", help="fix bound or not")
     training_group.add_argument("--loss_type", type=str, choices=["L1", "L2", "LPIPS"], help="Type of loss: L1, L2 or LPIPS.")
     training_group.add_argument("--training_rounds_v1", type=int, help="Number of training rounds for phase 1.")
-    training_group.add_argument("--training_rounds_v2", type=int, help="Number of training rounds for phase 2.")
     training_group.add_argument("--lr_time_1", type=float, help="Learning rate for the first phase.")
-    training_group.add_argument("--lr_time_2", type=float, help="Learning rate for the second phase.")
     training_group.add_argument("--min_lr_time_1", type=float, help="Minimum learning rate for the first phase.")
-    training_group.add_argument("--min_lr_time_2", type=float, help="Minimum learning rate for the second phase.")
     training_group.add_argument("--momentum_time_1", type=float, help="Momentum for the first phase.")
     training_group.add_argument("--weight_decay_time_1", type=float, help="Weight decay for the first phase.")
     training_group.add_argument("--shift_lr", type=float, help="Learning rate for moving latents.")
     training_group.add_argument("--shift_lr_decay", type=float, help="Learning rate decay for the shift phase.")
     training_group.add_argument("--lr_time_decay", type=float, help="Learning rate decay for the time phase.")
     training_group.add_argument("--patient", type=int, help="Patient for the time phase.")
-    training_group.add_argument("--lr2_patient", type=int, help="Patient for the second phase.")
     training_group.add_argument("--no_v1", action="store_true", help="Skip the first phase.")
     training_group.add_argument("--visualize", action="store_true", help="Visualize.")
     training_group.add_argument("--low_gpu", action="store_true", help="If we using low-mem gpu, we need to use checkpoint.")
@@ -203,13 +199,13 @@ def adjust_hyper(args, resolution=64, channel=3):
     parse_prior_timesteps(args)
     if args.shift_lr is None:
         args.shift_lr = 3.0 * 4 / args.steps
-    if not args.fix_bound:
-        args.prior_bound = 0.001 * resolution * resolution * channel / (args.steps ** 2)
-    args.lr_time_2 = args.lr_time_2 / args.steps
+    # if not args.fix_bound:
+    #     args.prior_bound = 0.001 * resolution * resolution * channel / (args.steps ** 2)
+    # args.lr_time_2 = args.lr_time_2 / args.steps
     
-    args.lr_time_2 = round(args.lr_time_2, 8)
-    # round prior_bound 
-    args.prior_bound = round(args.prior_bound, 8)
+    # args.lr_time_2 = round(args.lr_time_2, 8)
+    # # round prior_bound 
+    # args.prior_bound = round(args.prior_bound, 8)
     # round shift_lr
     args.shift_lr = round(args.shift_lr, 8)
     return args
@@ -218,12 +214,8 @@ def adjust_hyper(args, resolution=64, channel=3):
 def create_desc(args):
     NFEs = args.steps
     method_full = args.solver_name
-    desc = f"{method_full}-N{NFEs}-b{args.prior_bound}-{args.loss_type}-lr2{args.lr_time_2}"
-    desc += f"rv1{args.training_rounds_v1}-rv2{args.training_rounds_v2}-seed{args.seed}"
-    if args.no_v1:
-        desc += "-no_v1_only_v2"
-    if args.match_prior:
-        desc += "-match_prior"
+    desc = f"{method_full}-N{NFEs}-{args.loss_type}-"
+    desc += f"rv1{args.training_rounds_v1}-seed{args.seed}"
     return desc
 
 

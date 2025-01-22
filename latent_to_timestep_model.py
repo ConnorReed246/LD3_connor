@@ -11,7 +11,7 @@ from dataset import load_data_from_dir, LD3Dataset
 
 # Fully connected neural network with one hidden layer
 class LTT_model(nn.Module):
-    def __init__(self):
+    def __init__(self, steps: int = 10):
         super().__init__()
 
         # self.unet = SongUNet_Encoding(
@@ -23,8 +23,8 @@ class LTT_model(nn.Module):
         )
         self.mlp = SimpleMLP(
             input_size=1024 * 2 * 2,
-            output_size=8,
-            hidden_size=16
+            output_size=steps + 1,
+            hidden_size=100
         )
     
     def forward(self, x):
@@ -404,7 +404,7 @@ class SimpleUNet_Encoding(torch.nn.Module):
 
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size=16):
+    def __init__(self, input_size, output_size, hidden_size=100):
         super(SimpleMLP, self).__init__()
         # Define MLP layers
         self.fc1 = nn.Linear(input_size, hidden_size)  # First layer

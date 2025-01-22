@@ -89,19 +89,16 @@ def main(args):
     latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
         data_folder=args.data_dir, limit=args.num_train + args.num_valid
     )
-    ori_latents = [latent.clone() for latent in latents]
 
     train_dataset = LD3Dataset(
-        ori_latents[: args.num_train],
-        latents[: args.num_train],
+        latents[: args.num_train], #For LTT these will stay the same
         targets[: args.num_train],
         conditions[: args.num_train],
         unconditions[: args.num_train],
     )
     if args.num_valid > 0 :
         valid_dataset = LD3Dataset(
-            ori_latents[args.num_train :],
-            latents[args.num_train :],
+            latents[args.num_train :], #For LTT these will stay the same
             targets[args.num_train :],
             conditions[args.num_train :],
             unconditions[args.num_train :],
@@ -115,11 +112,10 @@ def main(args):
         train_batch_size=args.main_train_batch_size,
         valid_batch_size=args.main_valid_batch_size,
         lr_time_1=args.lr_time_1,
-        lr_time_2=args.lr_time_2,
         shift_lr=args.shift_lr,
         shift_lr_decay=args.shift_lr_decay,
         min_lr_time_1=args.min_lr_time_1,
-        min_lr_time_2=args.min_lr_time_2,
+
         win_rate=args.win_rate,
         patient=args.patient,
         lr_time_decay=args.lr_time_decay,
@@ -148,17 +144,8 @@ def main(args):
         device=device,
     )
     trainer = LD3Trainer(model_config, training_config)
-
-    
-
-    if writer: 
-        writer.add_text("Process/Description", f"""
-                        Parameters: {desc}
-                        Device: {device}
-                        Start Time: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start))}
-                        """)
         
-    trainer.train(args.training_rounds_v1, args.training_rounds_v2)
+    trainer.train(args.training_rounds_v1)
     end = time.time()
     logging.info(f"Training time: {end - start}")
     Tensorboard_Logger.close()

@@ -45,14 +45,13 @@ class TrainingConfig:
     train_batch_size: int
     valid_batch_size: int
     lr_time_1: float
-    lr_time_2: float
     shift_lr: float
     shift_lr_decay: float = 0.5
     min_lr_time_1: float = 5e-5
-    min_lr_time_2: float = 1e-6
+
     win_rate: float = 0.5
     patient: int = 5
-    lr2_patient: int = 5
+
     lr_time_decay: float = 0.8
     momentum_time_1: float = 0.9
     weight_decay_time_1: float = 0.0
@@ -98,11 +97,9 @@ class LD3Trainer:
 
         # Learning rate parameters
         self.lr_time_1 = training_config.lr_time_1
-        self.lr_time_2 = training_config.lr_time_2
         self.shift_lr = training_config.shift_lr
         self.shift_lr_decay = training_config.shift_lr_decay
         self.min_lr_time_1 = training_config.min_lr_time_1
-        self.min_lr_time_2 = training_config.min_lr_time_2
         self.lr_time_decay = training_config.lr_time_decay
         self.momentum_time_1 = training_config.momentum_time_1
         self.weight_decay_time_1 = training_config.weight_decay_time_1
@@ -121,12 +118,10 @@ class LD3Trainer:
         self.cur_round = 0
         self.count_worse = 0
         self.count_min_lr1_hit = 0
-        self.count_min_lr2_hit = 0
         self.best_loss = float("inf")
 
         # Other parameters
         self.patient = training_config.patient
-        self.lr2_patient = training_config.lr2_patient
         self.no_v1 = training_config.no_v1
         self.win_rate = training_config.win_rate
         self.snapshot_path = model_config.snapshot_path
@@ -137,15 +132,12 @@ class LD3Trainer:
 
         # Device and optimizer setup
         self._set_device(model_config.device)
-        self.params1, self.params2 = self._initialize_params()
+        self.params1 = self._initialize_params()
         self.optimizer_lamb1 = torch.optim.RMSprop(
-            [self.params1], #these are the lambdas (can be converted to time steps)
+            [self.params1], #these are the not lambdas nor timesteps, just the parameters that are are trained (can be converted to time steps / lambdas)
             lr=training_config.lr_time_1,
             momentum=training_config.momentum_time_1,
             weight_decay=training_config.weight_decay_time_1,
-        )
-        self.optimizer_lamb2 = torch.optim.SGD(
-            [self.params2], lr=training_config.lr_time_2
         )
 
         self.ltt_model = LTT_model()
@@ -161,11 +153,11 @@ class LD3Trainer:
         self.time_max = self.noise_schedule.inverse_lambda(self.lambda_min)
         self.time_min = self.noise_schedule.inverse_lambda(self.lambda_max)
 
-        # Initialize baseline
+        # Initialize baseline, what does this do?
         self._compute_baseline()
 
         # Initialize loss function
-        self.loss_type = training_config.loss_type
+        self.loss_type = training_config.loss_type #LPIPS -> differnece in two images 
         self.loss_fn = self._initialize_loss_fn()
         self.loss_vector = None
 
@@ -217,8 +209,7 @@ class LD3Trainer:
     
     def _initialize_params(self):
         params1 = torch.nn.Parameter(torch.ones(self.steps + 1, dtype=torch.float32).cuda(), requires_grad=True)
-        params2 = torch.nn.Parameter(torch.zeros(self.steps + 1, dtype=torch.float32).cuda(), requires_grad=True)
-        return params1, params2
+        return params1
 
     def _set_device(self, device):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -241,7 +232,6 @@ class LD3Trainer:
 
         dis_model = discretize_model_wrapper( #TODO change this to U-net etc.?
             self.params1,
-            self.params2,
             self.lambda_max,
             self.lambda_min,
             self.noise_schedule,
@@ -324,12 +314,11 @@ class LD3Trainer:
         outputs = list()
         targets = list()
         with torch.no_grad():
-            for img, latent, ori_latent, condition, uncondition in self.valid_only_loader:
+            for img, latent, condition, uncondition in self.valid_only_loader:
                 # condition = condition.squeeze()
                 # uncondition = uncondition.squeeze()
                 img = img.to(self.device)
                 latent = latent.to(self.device).reshape(latent.shape[0], -1)
-                ori_latent = ori_latent.to(self.device).reshape(latent.shape[0], -1)
                 if condition is not None:
                     condition = condition.to(self.device)
                 if uncondition is not None:
@@ -615,9 +604,9 @@ class LD3Trainer:
             
         return no_change, False
         
-    def train(self, training_rounds_v1: int, training_rounds_v2: int) -> None:
+    def train(self, training_rounds_v1) -> None:
         
-        total_round = training_rounds_v1 + training_rounds_v2
+        total_round = training_rounds_v1 
         self.training_rounds_v1 = training_rounds_v1
 
         if self.match_prior:
@@ -634,46 +623,36 @@ class LD3Trainer:
         
         logging.info(f"{self._current_version} Max round reached, stopping")
 
-def discretize_model_wrapper(input1, input2, lambda_max, lambda_min, noise_schedule, mode, window_rate=0.5):
+def discretize_model_wrapper(input1, lambda_max, lambda_min, noise_schedule, mode):
     '''
     checked!
     '''
     
     def model_time_fn():
-        time1, time2 = input1, input2
+        time1 = input1
         t_max, t_min = noise_schedule.inverse_lambda(lambda_min).to(time1.device), noise_schedule.inverse_lambda(lambda_max).to(time1.device)
         time_plus = torch.nn.functional.softmax(time1, dim=0)
         time_md = torch.cumsum(time_plus, dim=0).flip(0)
         normed = (time_md - time_md[-1]) / (time_md[0] - time_md[-1])
         time_steps = normed * (t_max - t_min) + t_min
-        cloned_time_steps = time_steps.clone().detach()
-        max_move = (cloned_time_steps[1:] - cloned_time_steps[:-1]).abs().min().item() * window_rate
-        clipped_time2 = torch.clamp(time2, min=-max_move, max=max_move)
         mask = torch.ones_like(normed)
         mask[0] = 0.
         mask[-1] = 0.
-        return time_steps, time_steps + (clipped_time2 * mask)
+        return time_steps
 
     def model_lambda_fn():
-        lambda1, lambda2 = input1, input2
+        lambda1 = input1
         lamb_plus = F.softmax(lambda1, dim=0)
         lamb_md = torch.cumsum(lamb_plus, dim=0)
         normed = (lamb_md - lamb_md.min()) / (lamb_md.max() - lamb_md.min())
         lamb_steps1 = normed * (lambda_max - lambda_min) + lambda_min
         mask = torch.ones_like(lamb_steps1)
         
-        cloned_lamb1 = lambda1.clone().detach()
-        max_move = (cloned_lamb1[1:] - cloned_lamb1[:-1]).abs().min().item() * window_rate
-        clipped_lamb2 = torch.clamp(lambda2, min=-max_move, max=max_move)
-        
         mask[0] = 0.
         mask[-1] = 0.
-        
-        lamb_steps2 = lamb_steps1 + clipped_lamb2 * mask
 
         time1 = noise_schedule.inverse_lambda(lamb_steps1)
-        time2 = noise_schedule.inverse_lambda(lamb_steps2)
-        return time1, time2
+        return time1
 
     return model_time_fn if mode == 'time' else model_lambda_fn
 

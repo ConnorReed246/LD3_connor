@@ -22,25 +22,22 @@ def load_data_from_dir(
 class LD3Dataset(Dataset):
     def __init__(
         self,
-        ori_latent: List[torch.Tensor],
         latent: List[torch.Tensor],
         target: List[torch.Tensor],
         condition:  List[Optional[torch.Tensor]],
         uncondition:  List[Optional[torch.Tensor]],
     ):
-        self.ori_latent = ori_latent
         self.latent = latent
         self.target = target
         self.condition = condition
         self.uncondition = uncondition
 
     def __len__(self) -> int:
-        return len(self.ori_latent)
+        return len(self.latent)
 
     def __getitem__(self, idx: int):
         img = self.target[idx]
         latent = self.latent[idx]
-        ori_latent = self.ori_latent[idx]
         condition = self.condition[idx]
         uncondition = self.uncondition[idx]
-        return img, latent, ori_latent, condition, uncondition
+        return img, latent, condition, uncondition
