@@ -29,10 +29,9 @@ class UniPC(ODESolver):
         self.predict_x0 = algorithm_type == "data_prediction" # true
 
 
-    def multistep_uni_pc_bh_update(self, x, model_prev_list, t_prev_list, t, t2, order, x_t=None, use_corrector=True):
+    def multistep_uni_pc_bh_update(self, x, model_prev_list, t_prev_list, t, order, x_t=None, use_corrector=True):
         if len(t.shape) == 0:
             t = t.view(-1)
-            t2 = t2.view(-1)
         # print(f'using unified predictor-corrector with order {order} (solver type: B(h))')
         ns = self.noise_schedule
         assert order <= len(model_prev_list)
@@ -120,7 +119,7 @@ class UniPC(ODESolver):
             x_t = x_t_ - alpha_t * B_h * pred_res
 
         if use_corrector:
-            model_t = self.model_fn(x_t, t2)
+            model_t = self.model_fn(x_t, t)
             if D1s is not None:
                 corr_res = einsum_float_double('k,bkchw->bchw', rhos_c[:-1], D1s)
             else:
@@ -130,10 +129,9 @@ class UniPC(ODESolver):
         return x_t, model_t
 
     
-    def one_step(self, t1, t2, t_prev_list, model_prev_list, step, x_next, order, first=True, use_corrector=True):
-        x_next, model_x_next = self.multistep_uni_pc_bh_update(x_next, model_prev_list, t_prev_list, t1, t2, step, use_corrector=use_corrector)
-        if model_x_next is None:
-            model_x_next = self.model_fn(x_next, t2)
+    def one_step(self, t1, t_prev_list, model_prev_list, step, x_next, order, first=True, use_corrector=True):
+        x_next, model_x_next = self.multistep_uni_pc_bh_update(x_next, model_prev_list, t_prev_list, t1, step, use_corrector=use_corrector)
+
         self.update_lists(t_prev_list, model_prev_list, t1, model_x_next, order, first=first)
         return x_next
 
@@ -162,26 +160,23 @@ class UniPC(ODESolver):
         with torch.no_grad():
             return self.sample_simple(model_fn, x, order, lower_order_final, timesteps, timesteps2)
         
-    def sample_simple(self, model_fn, x, timesteps, timesteps2, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
+    def sample_simple(self, model_fn, x, timesteps, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
         step = 0
         t1 = timesteps[step]
-        t2 = timesteps2[step]
         steps = len(timesteps) - 1
         t_prev_list = [t1]
-        model_prev_list = [self.model_fn(x, t2)]
+        model_prev_list = [self.model_fn(x, t1)] #TODO changed from t2 to t1, is this correct?
         if return_intermediates:
             x_list = [x]
         for step in range(1, order):
             t1 = timesteps[step]
-            t2 = timesteps2[step]
-            x = self.one_step(t1, t2, t_prev_list, model_prev_list, step, x, order, first=True) #this is noise
+            x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True) #this is noise, in this step we go from shape [3,32,32] to [3,3,32,32] 
             if return_intermediates:
                 x_list.append(x)
         
         for step in range(order, steps + 1):
             t1 = timesteps[step]
-            t2 = timesteps2[step]
             if lower_order_final:
                 step_order = min(order, steps + 1 - step)
             else:
@@ -190,7 +185,7 @@ class UniPC(ODESolver):
                 use_corrector = False
             else:
                 use_corrector = True
-            x = self.one_step(t1, t2, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector)
+            x = self.one_step(t1, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector)
             if return_intermediates:
                 x_list.append(x)
         if return_intermediates:

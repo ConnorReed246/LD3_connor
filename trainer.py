@@ -221,61 +221,48 @@ class LD3Trainer:
     def _create_train_loader(self):
         self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn)
     
-    def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): 
+    def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): #TODO remove timestep
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
         
         params1_list = []
         for i in range (batch_size):
-            params1_list.append(self.params1)
+            params1_list.append(self.ltt_model.forward(latent[i]))
             
 
-        dis_model = discretize_model_wrapper( #TODO change this to U-net etc.?
-            self.params1,
-            self.lambda_max,
-            self.lambda_min,
-            self.noise_schedule,
-            self.time_mode,
-            self.win_rate,
+        dis_model = DiscretizeModelWrapper( #Changed through LTT
+            lambda_max=self.lambda_max,
+            lambda_min=self.lambda_min,
+            noise_schedule=self.noise_schedule,
+            time_mode = self.time_mode,
         )
 
-
-
-
-
-        if timesteps is None:
-            timesteps1, timesteps2 = dis_model() #TODO add latent here to get timesteps
-        else:
-            timesteps1 = timesteps
-            timesteps2 = timesteps
-
-        if not valid and timesteps is None:
-            tst = torch.cat([timesteps1, timesteps2], dim=0).detach().cpu()
-            torch.save(tst, os.path.join(self.snapshot_path, f"t_steps.pt"))
+        timesteps_list  = [dis_model.convert(params1) for params1 in params1_list]
 
         #calculate timesteps from lambdas
-        self.t_steps1 = timesteps1.detach()
-        self.t_steps2 = timesteps2.detach()
-        lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
-        lamb2 = self.noise_schedule.marginal_lambda(timesteps2)
-        self.logSNR1 = lamb1.detach().cpu()
-        self.logSNR2 = lamb2.detach().cpu()
+        # self.t_steps1 = timesteps1.detach()
+        # lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
+        # self.logSNR1 = lamb1.detach().cpu()
 
-        x_next_ = self.noise_schedule.prior_transformation(latent)  # batch size x 3 x 32 x 32
+        x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent]  # batch size x 3 x 32 x 32
         #with timesteps calculate x_next_
-        x_next_ = self.solver.sample_simple(
-            model_fn=self.net,
-            x=x_next_,
-            timesteps=timesteps1,
-            timesteps2=timesteps2,
-            order=self.order,
-            NFEs=self.steps,
-            condition=condition,
-            unconditional_condition=uncondition,
-            **self.solver_extra_params,
-        )
-        x_next_ = self.decoding_fn(x_next_) # this is x'_0
-        self.loss_vector = self.loss_fn(img.float(), x_next_.float()).squeeze()   #Custom Loss Function: To ensure the timesteps are decreasing, you can define a custom loss function that penalizes outputs that do not meet this criterion. For instance, you can use a term that penalizes differences between consecutive elements if they are not negative.
+
+        x_next_computed = []
+        for timestep, x_next in zip(timesteps_list, x_next_list):
+            x_next_ = self.solver.sample_simple(
+                model_fn=self.net,
+                x=x_next,
+                timesteps=timestep,
+                order=self.order,
+                NFEs=self.steps,
+                condition=condition,
+                unconditional_condition=uncondition,
+                **self.solver_extra_params,
+            )
+            x_next_computed.append(x_next_)#maybe need to drop first entries?
+
+        x_next_computed = self.decoding_fn(torch.stack(x_next_computed, dim = 0)) # this is x'_0, needs to be stacked?
+        self.loss_vector = self.loss_fn(img.float(), x_next_computed.float()).squeeze()   #Custom Loss Function: To ensure the timesteps are decreasing, you can define a custom loss function that penalizes outputs that do not meet this criterion. For instance, you can use a term that penalizes differences between consecutive elements if they are not negative.
         loss = self.loss_vector.mean()
         logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
 
@@ -623,14 +610,23 @@ class LD3Trainer:
         
         logging.info(f"{self._current_version} Max round reached, stopping")
 
-def discretize_model_wrapper(input1, lambda_max, lambda_min, noise_schedule, mode):
+
+
+class DiscretizeModelWrapper:
     '''
-    checked!
+    Class added through LTT that allows dymanic adaption of params
     '''
+
+    def __init__(self, lambda_max, lambda_min, noise_schedule, time_mode):
+        self.lambda_max = lambda_max
+        self.lambda_min = lambda_min
+        self.noise_schedule = noise_schedule
+        self.time_mode = time_mode
+
     
-    def model_time_fn():
+    def model_time_fn(self, input1):
         time1 = input1
-        t_max, t_min = noise_schedule.inverse_lambda(lambda_min).to(time1.device), noise_schedule.inverse_lambda(lambda_max).to(time1.device)
+        t_max, t_min = self.noise_schedule.inverse_lambda(self.lambda_min).to(time1.device), self.noise_schedule.inverse_lambda(self.lambda_max).to(time1.device)
         time_plus = torch.nn.functional.softmax(time1, dim=0)
         time_md = torch.cumsum(time_plus, dim=0).flip(0)
         normed = (time_md - time_md[-1]) / (time_md[0] - time_md[-1])
@@ -640,23 +636,23 @@ def discretize_model_wrapper(input1, lambda_max, lambda_min, noise_schedule, mod
         mask[-1] = 0.
         return time_steps
 
-    def model_lambda_fn():
+    def model_lambda_fn(self, input1):
         lambda1 = input1
         lamb_plus = F.softmax(lambda1, dim=0)
         lamb_md = torch.cumsum(lamb_plus, dim=0)
         normed = (lamb_md - lamb_md.min()) / (lamb_md.max() - lamb_md.min())
-        lamb_steps1 = normed * (lambda_max - lambda_min) + lambda_min
+        lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
         mask = torch.ones_like(lamb_steps1)
         
         mask[0] = 0.
         mask[-1] = 0.
 
-        time1 = noise_schedule.inverse_lambda(lamb_steps1)
+        time1 = self.noise_schedule.inverse_lambda(lamb_steps1)
         return time1
 
-    return model_time_fn if mode == 'time' else model_lambda_fn
 
-
+    def convert(self, input1):
+        return self.model_time_fn(input1) if self.time_mode == 'time' else self.model_lambda_fn(input1)
 
 
 
