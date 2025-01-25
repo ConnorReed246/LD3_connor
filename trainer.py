@@ -224,10 +224,9 @@ class LD3Trainer:
     def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): #TODO remove timestep
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
-        
-        params1_list = []
-        for i in range (batch_size):
-            params1_list.append(self.ltt_model.forward(latent[i]))
+        params_list = []
+        for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
+            params_list.append(self.ltt_model.forward(latent[i]))
             
 
         dis_model = DiscretizeModelWrapper( #Changed through LTT
@@ -237,36 +236,37 @@ class LD3Trainer:
             time_mode = self.time_mode,
         )
 
-        timesteps_list  = [dis_model.convert(params1) for params1 in params1_list]
+        timesteps_list  = [dis_model.convert(params) for params in params_list]
+        self.timesteps_list = timesteps_list
 
         #calculate timesteps from lambdas
         # self.t_steps1 = timesteps1.detach()
         # lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
         # self.logSNR1 = lamb1.detach().cpu()
 
-        x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent]  # batch size x 3 x 32 x 32
+        x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent] # batch size x 3 x 32 x 32
         #with timesteps calculate x_next_
 
         x_next_computed = []
         for timestep, x_next in zip(timesteps_list, x_next_list):
-            x_next_ = self.solver.sample_simple(
+            x_next = self.solver.sample_simple( #visual(x_next.unsqueeze(0), "before_sampling.png") at this point just noise
                 model_fn=self.net,
-                x=x_next,
+                x=x_next.unsqueeze(0),#.unsqueeze(0), #add batch 1 to mimic prior package behavior
                 timesteps=timestep,
                 order=self.order,
                 NFEs=self.steps,
                 condition=condition,
                 unconditional_condition=uncondition,
                 **self.solver_extra_params,
-            )
-            x_next_computed.append(x_next_)#maybe need to drop first entries?
+            ) # this is already [3,3,32,32] for some reason
+            x_next_computed.append(x_next)#maybe need to drop first entries?
 
-        x_next_computed = self.decoding_fn(torch.stack(x_next_computed, dim = 0)) # this is x'_0, needs to be stacked?
+        x_next_computed = self.decoding_fn(torch.cat(x_next_computed, dim=0)) # this is x'_0, needs to be stacked?
         self.loss_vector = self.loss_fn(img.float(), x_next_computed.float()).squeeze()   #Custom Loss Function: To ensure the timesteps are decreasing, you can define a custom loss function that penalizes outputs that do not meet this criterion. For instance, you can use a term that penalizes differences between consecutive elements if they are not negative.
         loss = self.loss_vector.mean()
         logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
 
-        return loss, x_next_.float(), img.float()
+        return loss, x_next_computed.float(), img.float()
 
 
     @property
@@ -311,7 +311,7 @@ class LD3Trainer:
                 if uncondition is not None:
                     uncondition = uncondition.to(self.device)
                 loss, output, target = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=True) #TODO here we outpus output and target and anaylse the differnce?
-                
+
                 total_loss += loss.item()
                 count += 1
                 outputs.append(output)
@@ -350,29 +350,19 @@ class LD3Trainer:
         plt.close()
 
     def _save_checkpoint(self):
-        snapshot = {}
-        snapshot["params1"] = self.params1.data 
-        snapshot["params2"] = self.params2.data
-        snapshot["best_t_steps"] = torch.cat([self.t_steps1, self.t_steps2], dim=0)
 
-        if self._is_in_version_1():
-            torch.save(snapshot, os.path.join(self.snapshot_path, "best_v1.pt"))
-        torch.save(snapshot, os.path.join(self.snapshot_path, "best_v2.pt"))
-        torch.save(snapshot, os.path.join(self.snapshot_path, f"best_t_steps_{self.cur_iter}.pt"))
-
+        torch.save(self.ltt_model.state_dict(), self.snapshot_path + "/ltt_model.pt")
         # save dataloader, valid_loader, valid_only_loader
         pickle.dump(self.train_data, open(os.path.join(self.snapshot_path, "train_data.pkl"), "wb"))
         pickle.dump(self.valid_data, open(os.path.join(self.snapshot_path, "valid_data.pkl"), "wb"))
+
+        # model must be created again with parameters
+        
+
+
     
     def _load_checkpoint(self, reload_data:bool):
-        if self._is_in_version_1():
-            snapshot = torch.load(os.path.join(self.snapshot_path, "best_v1.pt"))
-        else:
-            snapshot = torch.load(os.path.join(self.snapshot_path, "best_v2.pt"))
-            
-        self.params1.data = snapshot["params1"].cuda()
-        self.params2.data = snapshot["params2"].cuda()
-        
+        self.ltt_model.load_state_dict(self.snapshot_path + "/ltt_model.pt")
         if reload_data:
             self.train_data = pickle.load(open(os.path.join(self.snapshot_path, "train_data.pkl"), "rb"))
             self.valid_data = pickle.load(open(os.path.join(self.snapshot_path, "valid_data.pkl"), "rb"))
@@ -387,8 +377,8 @@ class LD3Trainer:
             self.best_loss = total_loss
             self.count_worse = 0
             self._save_checkpoint() #saves self.params1.data and best_t_steps
-            self._visual_times()
-            save_gif(self.snapshot_path)
+            #self._visual_times() TODO: maybe revisualize with average timsteps or distributions
+            #save_gif(self.snapshot_path)
         else:
             self.count_worse += 1
             logging.info(f"{self._current_version} Count worse: {self.count_worse}")
@@ -398,12 +388,12 @@ class LD3Trainer:
         
         ##################### Tensorboard logging #####################
 
-        layout = {
-            "Timesteps": {
-                "timestep": ["Multiline", ["timestep/" + str(i) for i in range(len(self.t_steps1))]],
-            },
-        }
-        self.writer.add_custom_scalars(layout)
+        # layout = {
+        #     "Timesteps": {
+        #         "timestep": ["Multiline", ["timestep/" + str(i) for i in range(len(self.t_steps1))]],
+        #     },
+        # }
+        # self.writer.add_custom_scalars(layout) #TODO add visualisation for new timesteps
 
         if self.writer:
             self.writer.add_scalar(f"Validation/Loss", total_loss, iter)
@@ -420,9 +410,9 @@ class LD3Trainer:
                 grid = torchvision.utils.make_grid(tensor_to_image(output[:8]))
                 self.writer.add_image('Validation/Output', grid, iter)
 
-                for i in range(len(self.t_steps1)):
-                    self.writer.add_scalar(f"timestep/{i}", self.t_steps1[i], iter)
-                # self.writer.add_histogram("Timesteps/Distribution", torch.cat([self.t_steps1, self.t_steps2], dim=0), iter)
+                # for i in range(len(self.t_steps1)):
+                #     self.writer.add_scalar(f"timestep/{i}", self.t_steps1[i], iter)
+                self.writer.add_histogram("Timesteps/Distribution", torch.stack(self.timesteps_list), iter)
 
 
         ##########################################'#####################

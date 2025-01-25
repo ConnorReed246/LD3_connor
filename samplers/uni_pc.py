@@ -119,7 +119,7 @@ class UniPC(ODESolver):
             x_t = x_t_ - alpha_t * B_h * pred_res
 
         if use_corrector:
-            model_t = self.model_fn(x_t, t)
+            model_t = self.model_fn(x_t, t) #TODO here we get the size 1 from the model
             if D1s is not None:
                 corr_res = einsum_float_double('k,bkchw->bchw', rhos_c[:-1], D1s)
             else:
@@ -151,7 +151,7 @@ class UniPC(ODESolver):
     def sample(self, model_fn, x, steps=20, t_start=None, t_end=None, order=2, \
                 skip_type='time_uniform', lower_order_final=True, flags=None, return_intermediates=False
     ):
-        self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])))
+        self.model = lambda x, t: model_fn(x, t.expand((x.shape[0]))) #TODO or we need to change here
         t_0 = self.noise_schedule.eps if t_end is None else t_end
         t_T = self.noise_schedule.T if t_start is None else t_start
         device = x.device
@@ -161,7 +161,7 @@ class UniPC(ODESolver):
             return self.sample_simple(model_fn, x, order, lower_order_final, timesteps, timesteps2)
         
     def sample_simple(self, model_fn, x, timesteps, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
-        self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
+        self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition) #removed expand since batch size is always 1 and dimension is not present
         step = 0
         t1 = timesteps[step]
         steps = len(timesteps) - 1
@@ -170,7 +170,7 @@ class UniPC(ODESolver):
         if return_intermediates:
             x_list = [x]
         for step in range(1, order):
-            t1 = timesteps[step]
+            t1 = timesteps[step] #TODO we could still visualize this to tensorboard or so? may<be with flag return intermediates
             x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True) #this is noise, in this step we go from shape [3,32,32] to [3,3,32,32] 
             if return_intermediates:
                 x_list.append(x)

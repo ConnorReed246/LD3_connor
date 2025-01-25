@@ -411,8 +411,8 @@ class SimpleMLP(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)  # Hidden layer
         self.fc3 = nn.Linear(hidden_size, output_size)  # Output layer
 
-    def forward(self, x):
-        x = x.view(-1)  # Flatten input from [B, 2, 2] to [B, 4]
+    def forward(self, x, batch_size = 1):
+        x = x.view(-1) #x.view(x.size(0), -1) # Flatten input from [B, C, H, W] to [B, C*H*W]
         x = F.relu(self.fc1(x))  # First layer with ReLU activation
         x = F.relu(self.fc2(x))  # Second layer with ReLU activation
         x = self.fc3(x)  # Output layer
@@ -420,34 +420,33 @@ class SimpleMLP(nn.Module):
 
 
 if __name__ == "__main__":
-    #Dataset
-    # model
-    #forward pass
-    # loss
+    # Dataset
     data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
-    latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
+    latents, targets, conditions, unconditions = load_data_from_dir( # this is what we take from training, targets are original images and latents latent goal
         data_folder=data_dir, 
         limit=10
     )
     ori_latents = [latent.clone() for latent in latents]
 
-
-    loader = LD3Dataset(
-        ori_latents,
-        latents,
-        targets,
-        conditions,
-        unconditions,
+    loader = DataLoader(
+        LD3Dataset(
+            ori_latents,
+            latents,
+            targets,
+            conditions,
+            unconditions,
+        ),
+        batch_size=4,  # Adjust batch size as needed
+        shuffle=True
     )
 
-    img, latent, ori_latent, condition, uncondition = loader[0]
-    
     model = LTT_model()
     print(model)
 
     # Forward pass
-    outputs = model(latent)
-    print(outputs.shape)
-    print(outputs)
-    
-    pass
+    for batch in loader:
+        img, latent, ori_latent, condition, uncondition = batch
+        outputs = model(latent)
+        print(outputs.shape)
+        print(outputs)
+        break  # Remove this break to process the entire dataset
