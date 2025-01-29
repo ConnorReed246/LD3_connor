@@ -90,18 +90,18 @@ def main(args):
         data_folder=args.data_dir, limit=args.num_train + args.num_valid
     )
 
-    train_dataset = LD3Dataset(
-        latents[: args.num_train], #For LTT these will stay the same
-        targets[: args.num_train],
-        conditions[: args.num_train],
-        unconditions[: args.num_train],
+    valid_dataset = LD3Dataset(
+        latents[: args.num_valid],
+        targets[: args.num_valid],
+        conditions[: args.num_valid],
+        unconditions[: args.num_valid],
     )
     if args.num_valid > 0 :
-        valid_dataset = LD3Dataset(
-            latents[args.num_train :], #For LTT these will stay the same
-            targets[args.num_train :],
-            conditions[args.num_train :],
-            unconditions[args.num_train :],
+        train_dataset = LD3Dataset(
+            latents[args.num_valid :],
+            targets[args.num_valid :],
+            conditions[args.num_valid :],
+            unconditions[args.num_valid :],
         )
     else:
         valid_dataset = train_dataset

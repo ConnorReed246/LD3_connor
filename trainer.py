@@ -99,7 +99,7 @@ class LD3Trainer:
         self.lr_time_1 = training_config.lr_time_1
         self.shift_lr = training_config.shift_lr
         self.shift_lr_decay = training_config.shift_lr_decay
-        self.min_lr_time_1 = training_config.min_lr_time_1
+        self.min_lr = training_config.min_lr_time_1
         self.lr_time_decay = training_config.lr_time_decay
         self.momentum_time_1 = training_config.momentum_time_1
         self.weight_decay_time_1 = training_config.weight_decay_time_1
@@ -117,7 +117,7 @@ class LD3Trainer:
         self.cur_iter = 0
         self.cur_round = 0
         self.count_worse = 0
-        self.count_min_lr1_hit = 0
+        self.count_min_lr_hit = 0
         self.best_loss = float("inf")
 
         # Other parameters
@@ -132,16 +132,12 @@ class LD3Trainer:
 
         # Device and optimizer setup
         self._set_device(model_config.device)
-        self.params1 = self._initialize_params()
-        self.optimizer_lamb1 = torch.optim.RMSprop(
-            [self.params1], #these are the not lambdas nor timesteps, just the parameters that are are trained (can be converted to time steps / lambdas)
-            lr=training_config.lr_time_1,
-            momentum=training_config.momentum_time_1,
-            weight_decay=training_config.weight_decay_time_1,
-        )
+        self.params = self._initialize_params()
 
         self.ltt_model = LTT_model()
         self.ltt_model = self.ltt_model.to(self.device)
+
+        self.optimizer = torch.optim.Adam(self.ltt_model.parameters(), lr=training_config.lr_time_1) #TODO maybe add momentum an weight decay?    momentum=training_config.momentum_time_1,  weight_decay=training_config.weight_decay_time_1,
 
         self.prior_timesteps = training_config.prior_timesteps
         self.match_prior = training_config.match_prior
@@ -164,38 +160,38 @@ class LD3Trainer:
 
 
 
-
-    def _train_to_match_prior(self, prior_timesteps=None):
-        if prior_timesteps is None:
-            prior_timesteps = self.prior_timesteps
+    #Nothing here is updated to LTT
+    # def _train_to_match_prior(self, prior_timesteps=None):
+    #     if prior_timesteps is None:
+    #         prior_timesteps = self.prior_timesteps
             
-        if prior_timesteps is None:
-            return 
-        logging.info(f"Matching prior timesteps")
-        prior_timesteps = self.noise_schedule.inverse_lambda(-np.log(prior_timesteps)).to(self.device).float()
+    #     if prior_timesteps is None:
+    #         return 
+    #     logging.info(f"Matching prior timesteps")
+    #     prior_timesteps = self.noise_schedule.inverse_lambda(-np.log(prior_timesteps)).to(self.device).float()
         
-        dis_model = discretize_model_wrapper(
-            self.params1,
-            self.params2,
-            self.lambda_max,
-            self.lambda_min,
-            self.noise_schedule,
-            self.time_mode,
-            self.win_rate,
-        )
+    #     dis_model = discretize_model_wrapper(
+    #         self.params,
+    #         self.params2,
+    #         self.lambda_max,
+    #         self.lambda_min,
+    #         self.noise_schedule,
+    #         self.time_mode,
+    #         self.win_rate,
+    #     )
         
-        self.params1.requires_grad = True
-        self.params2.requires_grad = False
+    #     self.params.requires_grad = True
+    #     self.params2.requires_grad = False
         
-        loss_time = float("inf")
-        while loss_time > 1e-3:
-            self.optimizer_lamb1.zero_grad()
-            self.optimizer_lamb2.zero_grad()
-            times1, times2 = dis_model()
-            loss_time = (times1 - prior_timesteps).pow(2).mean()
-            logging.info(f"Loss time: {loss_time}")
-            loss_time.backward()
-            self.optimizer_lamb1.step()
+    #     loss_time = float("inf")
+    #     while loss_time > 1e-3:
+    #         self.optimizer_lamb1.zero_grad()
+    #         self.optimizer_lamb2.zero_grad()
+    #         times1, times2 = dis_model()
+    #         loss_time = (times1 - prior_timesteps).pow(2).mean()
+    #         logging.info(f"Loss time: {loss_time}")
+    #         loss_time.backward()
+    #         self.optimizer_lamb1.step()
         
     def _initialize_loss_fn(self):
         if self.loss_type == 'LPIPS':
@@ -208,8 +204,8 @@ class LD3Trainer:
             raise NotImplementedError
     
     def _initialize_params(self):
-        params1 = torch.nn.Parameter(torch.ones(self.steps + 1, dtype=torch.float32).cuda(), requires_grad=True)
-        return params1
+        params = torch.nn.Parameter(torch.ones(self.steps + 1, dtype=torch.float32).cuda(), requires_grad=True)
+        return params
 
     def _set_device(self, device):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -362,7 +358,8 @@ class LD3Trainer:
 
     
     def _load_checkpoint(self, reload_data:bool):
-        self.ltt_model.load_state_dict(self.snapshot_path + "/ltt_model.pt")
+        state_dict = torch.load(self.snapshot_path + "/ltt_model.pt", weights_only=True)
+        self.ltt_model.load_state_dict(state_dict)  # Load the model state
         if reload_data:
             self.train_data = pickle.load(open(os.path.join(self.snapshot_path, "train_data.pkl"), "rb"))
             self.valid_data = pickle.load(open(os.path.join(self.snapshot_path, "valid_data.pkl"), "rb"))
@@ -376,7 +373,7 @@ class LD3Trainer:
         if total_loss < self.best_loss:
             self.best_loss = total_loss
             self.count_worse = 0
-            self._save_checkpoint() #saves self.params1.data and best_t_steps
+            self._save_checkpoint() #saves self.params.data and best_t_steps
             #self._visual_times() TODO: maybe revisualize with average timsteps or distributions
             #save_gif(self.snapshot_path)
         else:
@@ -415,7 +412,7 @@ class LD3Trainer:
                 self.writer.add_histogram("Timesteps/Distribution", torch.stack(self.timesteps_list), iter)
 
 
-        ##########################################'#####################
+        ###############################################################
             
         
         if self.count_worse >= self.patient:
@@ -429,30 +426,19 @@ class LD3Trainer:
                 logging.info("Start evaluation on all valid set from now. Not decay learning rate.")
                 return 
 
-            self.optimizer_lamb1.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer_lamb1.param_groups[0]['lr'], self.min_lr_time_1)
-            logging.info(f"{self._current_version} Decay time1 lr to {self.optimizer_lamb1.param_groups[0]['lr']}")
+            self.optimizer.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer.param_groups[0]['lr'], self.min_lr)
+            logging.info(f"{self._current_version} Decay time1 lr to {self.optimizer.param_groups[0]['lr']}")
 
-            if self._is_in_version_1():
-                if self.optimizer_lamb1.param_groups[0]['lr'] <= self.min_lr_time_1:
-                    self.count_min_lr1_hit += 1
-            else:
-                self.optimizer_lamb2.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer_lamb2.param_groups[0]['lr'], self.min_lr_time_2)
-                logging.info(f"{self._current_version} Decay time2 lr to {self.optimizer_lamb2.param_groups[0]['lr']}")
-                if self.optimizer_lamb2.param_groups[0]['lr'] <= self.min_lr_time_2:
-                    self.count_min_lr2_hit += 1
+        
+            if self.optimizer.param_groups[0]['lr'] <= self.min_lr: #TODO this might break
+                self.count_min_lr_hit += 1
 
     def _set_trainable_params(self, is_train:bool, is_no_v1:bool)->None:
         if is_train:
-            self.params1.requires_grad = True
-            self.params2.requires_grad = not self._is_in_version_1()
-                 
-            if is_no_v1:
-                self.params1.requires_grad = False
-                self.params2.requires_grad = True 
-                
+            self.params.requires_grad = True
+                          
         else:
-            self.params1.requires_grad = False
-            self.params2.requires_grad = False
+            self.params.requires_grad = False
 
     def _log_valid_distance(self, ori_latent: torch.tensor, latent: torch.tensor):
         assert ori_latent.shape == latent.shape, "Shape of ori_latent and latent mismatched"
@@ -506,8 +492,8 @@ class LD3Trainer:
 
             self._set_trainable_params(is_train=loader_idx == 0, is_no_v1=self.no_v1)
             
-            ori_latents, latents, targets, conditions, unconditions = [], [], [], [], []
-            for img, latent, ori_latent, condition, uncondition in loader: #1 at a time in validation
+            latents, targets, conditions, unconditions = [], [], [], []
+            for img, latent, condition, uncondition in loader: #1 at a time in validation
 
                 ############################## TENSORBOARD ##############################
                 if loader_idx == 0 and self.cur_iter == 0:
@@ -515,69 +501,51 @@ class LD3Trainer:
                     self.writer.add_graph(self.ltt_model, latent)
                 ########################################################################
 
-                img, latent, ori_latent, condition, uncondition = move_tensor_to_device(img, latent, ori_latent, condition, uncondition, device=self.device)
-                if loader_idx == 1:
-                    self._log_valid_distance(ori_latent, latent)
+                img, latent, condition, uncondition = move_tensor_to_device(img, latent, condition, uncondition, device=self.device)
                 
                 # Flattent latents
-                batch_size = ori_latent.shape[0]
-                ori_latent = ori_latent.reshape(batch_size, -1) # torch.Size([1, 3072])
-                latent_to_update = latent.clone().detach().reshape(batch_size, -1).to(self.device)
-                latent_params = torch.nn.Parameter(latent_to_update)
-                latent_params.requires_grad = True
+                batch_size = latent.shape[0]
+                latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
+                # latent_to_update = latent.clone().detach().reshape(batch_size, -1).to(self.device)
+                # latent_params = torch.nn.Parameter(latent_to_update)
+                # latent_params.requires_grad = True
         
-                latent_optimizer = torch.optim.SGD([latent_params], lr=self.shift_lr)
+                # latent_optimizer = torch.optim.SGD([latent_params], lr=self.shift_lr)
 
-                loss, _, _ = self._solve_ode(img=img, latent=latent_params, condition=condition, uncondition=uncondition, valid=False)
-                loss_vector_ref = self.loss_vector.clone().detach()
+                loss, _, _ = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=False)
                 loss.backward()
                 logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
                 self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
                 
-                latent_optimizer.step()
-                latent_optimizer.zero_grad()
+                # latent_optimizer.step()
+                # latent_optimizer.zero_grad()
 
                 if loader_idx == 0:
-                    torch.nn.utils.clip_grad_norm_(self.params1, 1.0)
-                    torch.nn.utils.clip_grad_norm_(self.params2, 1.0)
+                    torch.nn.utils.clip_grad_norm_(self.params, 1.0)
 
-                    self.optimizer_lamb1.step() #does this ever change?
-                    ##################### TENSORBOARD #####################
-                    for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
-                        self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
+                    #TODO we have to rewrite this so that self.ltt model is backpropagated
+                    self.optimizer.step() #does this ever change?
+                    ##################### TENSORBOARD ##################### #TODO update to new gradients?
+                    # for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
+                    #     self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
                     #######################################################
-                    self.optimizer_lamb1.zero_grad()
-                    self.optimizer_lamb2.step()
-                    self.optimizer_lamb2.zero_grad()
+                    self.optimizer.zero_grad()
+
 
                     self.cur_iter += 1
                     self._examine_checkpoint(self.cur_iter) # evaluate
-                    if self.count_min_lr2_hit >= self.lr2_patient:
-                        logging.info(f"{self._current_version} Reach min lr2 5 times. Stop training.")
-                        return no_change, True
-                
-                with torch.no_grad():
-                    latent, to_update_mask = self._update_latents(latent, condition, uncondition, ori_latent, img, latent_params, loss_vector_ref, self.prior_bound)
-                    if loader_idx == 1 and to_update_mask.sum().item() > 0:
-                        # check if this valid latent is moved
-                        no_change = False
-                
-                ori_latent = ori_latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
+        
+            
                 latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
                 img = img.detach().cpu()
                 condition = condition.detach().cpu() if condition is not None else None
                 uncondition = uncondition.detach().cpu() if uncondition is not None else None
                 
                 for j in range(latent.shape[0]):
-                    ori_latents.append(ori_latent[j])
                     targets.append(img[j])
                     latents.append(latent[j])
                     conditions.append(condition[j] if condition is not None else None)
                     unconditions.append(uncondition[j] if uncondition is not None else None)
-                
-            # update dataset TODO we don't want to do this right?
-            if self.prior_bound > 0:
-                self._update_dataloader(ori_latents, latents, targets, conditions, unconditions, is_train=loader_idx==0)
             
         return no_change, False
         
@@ -586,8 +554,8 @@ class LD3Trainer:
         total_round = training_rounds_v1 
         self.training_rounds_v1 = training_rounds_v1
 
-        if self.match_prior:
-            self._train_to_match_prior()
+        # if self.match_prior:
+        #     self._train_to_match_prior()
 
         while self.cur_round < total_round:
             no_latent_change, should_stop = self._train_one_round()

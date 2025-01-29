@@ -11,7 +11,7 @@ def load_data_from_dir(
     pt_files = [f for f in os.listdir(data_folder) if f.endswith('pt')]
     for file_name in sorted(pt_files)[:limit]: #load all training files previously created
         file_path = os.path.join(data_folder, file_name)
-        data = torch.load(file_path)
+        data = torch.load(file_path, weights_only=True)
         latents.append(data["latent"])
         targets.append(data["img"])
         conditions.append(data.get("c", None))

@@ -1,5 +1,6 @@
 import torch
 from samplers.general_solver import ODESolver
+import math
 
 
 def einsum_float_double(string, a, b):
@@ -38,14 +39,14 @@ class UniPC(ODESolver):
 
         # first compute rks
         t_prev_0 = t_prev_list[-1]
-        lambda_prev_0 = ns.marginal_lambda(t_prev_0)
+        lambda_prev_0 = ns.marginal_lambda(t_prev_0) #TODO these are sometimes the same and cause h to become 0
         lambda_t = ns.marginal_lambda(t)
         model_prev_0 = model_prev_list[-1]
         sigma_prev_0, sigma_t = ns.marginal_std(t_prev_0), ns.marginal_std(t)
         log_alpha_prev_0, log_alpha_t = ns.marginal_log_mean_coeff(t_prev_0), ns.marginal_log_mean_coeff(t)
         alpha_t = torch.exp(log_alpha_t)
 
-        h = lambda_t - lambda_prev_0
+        h = lambda_t - lambda_prev_0 #This is sometimes the same?
 
         rks = []
         D1s = []
@@ -65,7 +66,7 @@ class UniPC(ODESolver):
 
         hh = -h if self.predict_x0 else h
         h_phi_1 = torch.expm1(hh) # h\phi_1(h) = e^h - 1
-        h_phi_k = h_phi_1 / hh - 1
+        h_phi_k = h_phi_1 / hh - 1 #this becomes 0 sometimes?
 
         factorial_i = 1
 
@@ -84,6 +85,7 @@ class UniPC(ODESolver):
 
         R = torch.stack(R)
         b = torch.cat(b)
+        #THESE SOMETIMES HAVE NANS IN THEM???
 
         # now predictor
         use_predictor = len(D1s) > 0 and x_t is None
@@ -104,7 +106,10 @@ class UniPC(ODESolver):
             if order == 1:
                 rhos_c = torch.tensor([0.5], device=b.device)
             else:
-                rhos_c = torch.linalg.solve(R, b)
+                try:
+                    rhos_c = torch.linalg.solve(R, b) #Should be [3,3] and b [3], or [2,2] and b [2]
+                except:
+                    raise ValueError(f'Error in solving R={R} and b={b}')
 
         model_t = None
         x_t_ = (
@@ -163,15 +168,15 @@ class UniPC(ODESolver):
     def sample_simple(self, model_fn, x, timesteps, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition) #removed expand since batch size is always 1 and dimension is not present
         step = 0
-        t1 = timesteps[step]
+        t1 = timesteps[step] #TODO these are evaluated tensor sometimes?([8.0000e+01, 8.0000e+01, 8.0000e+01, 8.0000e+01, 8.0000e+01, 8.0000e+01, 2.0000e-03, 2.0000e-03, 2.0000e-03, 2.0000e-03, 2.0000e-03], device='cuda:0')
         steps = len(timesteps) - 1
-        t_prev_list = [t1]
+        t_prev_list = [t1] #TODO t1 and t_prev list must be different
         model_prev_list = [self.model_fn(x, t1)] #TODO changed from t2 to t1, is this correct?
         if return_intermediates:
             x_list = [x]
         for step in range(1, order):
             t1 = timesteps[step] #TODO we could still visualize this to tensorboard or so? may<be with flag return intermediates
-            x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True) #this is noise, in this step we go from shape [3,32,32] to [3,3,32,32] 
+            x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True) #this works
             if return_intermediates:
                 x_list.append(x)
         
