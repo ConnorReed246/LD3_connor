@@ -91,20 +91,20 @@ def main(args):
     )
     ori_latents = [latent.clone() for latent in latents]
 
-    train_dataset = LD3Dataset(
-        ori_latents[: args.num_train],
-        latents[: args.num_train],
-        targets[: args.num_train],
-        conditions[: args.num_train],
-        unconditions[: args.num_train],
+    valid_dataset = LD3Dataset(
+        ori_latents[: args.num_valid],
+        latents[: args.num_valid],
+        targets[: args.num_valid],
+        conditions[: args.num_valid],
+        unconditions[: args.num_valid],
     )
     if args.num_valid > 0 :
-        valid_dataset = LD3Dataset(
-            ori_latents[args.num_train :],
-            latents[args.num_train :],
-            targets[args.num_train :],
-            conditions[args.num_train :],
-            unconditions[args.num_train :],
+        train_dataset = LD3Dataset(
+            ori_latents[args.num_valid :],
+            latents[args.num_valid :],
+            targets[args.num_valid :],
+            conditions[args.num_valid :],
+            unconditions[args.num_valid :],
         )
     else:
         valid_dataset = train_dataset
