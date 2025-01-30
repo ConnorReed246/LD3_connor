@@ -222,7 +222,7 @@ class LD3Trainer:
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
         params_list = []
         for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
-            params_list.append(self.ltt_model.forward(latent[i]))
+            params_list.append(torch.tensor([1.5950, 1.3196, 1.5510, 0.6980, 0.8744, 0.9761, 1.3337, 0.6369, 1.0958, 1.2658, 1.6243], device=self.device))#self.ltt_model.forward(latent[i])
             
 
         dis_model = DiscretizeModelWrapper( #Changed through LTT
@@ -512,7 +512,7 @@ class LD3Trainer:
                 # latent_optimizer = torch.optim.SGD([latent_params], lr=self.shift_lr)
 
                 loss, _, _ = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=False)
-                loss.backward()
+                #loss.backward()
                 logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
                 self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
                 
@@ -523,12 +523,12 @@ class LD3Trainer:
                     torch.nn.utils.clip_grad_norm_(self.params, 1.0)
 
                     #TODO we have to rewrite this so that self.ltt model is backpropagated
-                    self.optimizer.step() #does this ever change?
-                    ##################### TENSORBOARD ##################### #TODO update to new gradients?
-                    # for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
-                    #     self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
-                    #######################################################
-                    self.optimizer.zero_grad()
+                    # self.optimizer.step() #does this ever change?
+                    # ##################### TENSORBOARD ##################### #TODO update to new gradients?
+                    # # for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
+                    # #     self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
+                    # #######################################################
+                    # self.optimizer.zero_grad()
 
 
                     self.cur_iter += 1
