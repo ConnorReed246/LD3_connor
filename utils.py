@@ -129,6 +129,7 @@ def parse_arguments():
     other_group.add_argument("--prompt_path", type=str, help="Prompt json path for stable diff")
     other_group.add_argument("--num_prompts", type=int, default=5, help="Number of prompts we want to use, default 5")
     other_group.add_argument("--force_train", type = bool, default=False, help="Force retrain or not")
+    other_group.add_argument("--log_suffix", type = str, default="", help="Log suffix")
     args = parser.parse_args()
 
     # Load the config file if specified
@@ -213,9 +214,11 @@ def adjust_hyper(args, resolution=64, channel=3):
 
 def create_desc(args):
     NFEs = args.steps
-    method_full = args.solver_name
-    desc = f"{method_full}-N{NFEs}-{args.loss_type}-"
-    desc += f"rv1{args.training_rounds_v1}-seed{args.seed}"
+    #method_full = args.solver_name
+    desc = f"N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
+    desc += f"-rv1{args.training_rounds_v1}-seed{args.seed}"
+    if args.log_suffix:
+        desc += f"-{args.log_suffix}"
     return desc
 
 

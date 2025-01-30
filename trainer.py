@@ -40,8 +40,8 @@ def custom_collate_fn(batch):
 
 @dataclass
 class TrainingConfig:
-    train_data: any
     valid_data: any
+    train_data: any
     train_batch_size: int
     valid_batch_size: int
     lr_time_1: float
@@ -217,7 +217,7 @@ class LD3Trainer:
     def _create_train_loader(self):
         self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn)
     
-    def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): #TODO remove timestep
+    def _solve_ode(self, img=None, latent=None, condition=None, uncondition=None, valid=False): #TODO remove timestep
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
         params_list = []
@@ -353,8 +353,7 @@ class LD3Trainer:
         pickle.dump(self.valid_data, open(os.path.join(self.snapshot_path, "valid_data.pkl"), "wb"))
 
         # model must be created again with parameters
-        
-
+    
 
     
     def _load_checkpoint(self, reload_data:bool):
@@ -567,6 +566,7 @@ class LD3Trainer:
                 self.shift_lr *= self.shift_lr_decay
         
         logging.info(f"{self._current_version} Max round reached, stopping")
+        torch.save(self.ltt_model.state_dict(), self.snapshot_path + "/final_ltt_model.pt")
 
 
 
