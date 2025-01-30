@@ -416,7 +416,7 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.fc1(x))  # First layer with ReLU activation
         x = F.relu(self.fc2(x))  # Second layer with ReLU activation
         x = self.fc3(x)  # Output layer
-        x = torch.sigmoid(x)  # Scale output to [0, 1]
+        x = torch.sigmoid(x) * 2  # Scale output to [0, 2] -> originally between [0, 1]
         return x
 
 
