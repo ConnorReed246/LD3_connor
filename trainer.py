@@ -608,6 +608,13 @@ class LD3Trainer:
                 self.shift_lr *= self.shift_lr_decay
         
         logging.info(f"{self._current_version} Max round reached, stopping")
+        #log best params
+        self._load_checkpoint(reload_data=False)
+        logging.info(f"best params1: {self.params1.data}")
+        self.writer.add_text("best params", str(self.params1.numpy()))
+
+
+
 
 def discretize_model_wrapper(input1, input2, lambda_max, lambda_min, noise_schedule, mode, window_rate=0.5):
     '''
