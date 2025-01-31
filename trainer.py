@@ -134,7 +134,7 @@ class LD3Trainer:
         self._set_device(model_config.device)
         self.params = self._initialize_params()
 
-        self.ltt_model = LTT_model()
+        self.ltt_model = LTT_model(steps=self.steps)
         self.ltt_model = self.ltt_model.to(self.device)
 
         self.optimizer = torch.optim.Adam(self.ltt_model.parameters(), lr=training_config.lr_time_1) #TODO maybe add momentum an weight decay?    momentum=training_config.momentum_time_1,  weight_decay=training_config.weight_decay_time_1,

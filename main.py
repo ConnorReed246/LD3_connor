@@ -75,7 +75,7 @@ def main(args):
     setup_logging(log_dir)
 
     if args.use_tensorboard:
-        writer = Tensorboard_Logger.get_writer(log_dir = "runs/" + desc + "_" + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start)))
+        writer = Tensorboard_Logger.get_writer(log_dir = "runs/" + desc + "_" + time.strftime("%m-%d_%H:%M", time.localtime(start)))
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     #UniPC: A Unified Predictor-Corrector Framework for Fast Sampling of Diffusion Models -> used to increase sampling speed
