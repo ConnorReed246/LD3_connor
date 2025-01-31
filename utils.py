@@ -212,13 +212,14 @@ def adjust_hyper(args, resolution=64, channel=3):
     return args
 
 
+
 def create_desc(args):
     NFEs = args.steps
     #method_full = args.solver_name
     desc = "LTT_"
     if args.log_suffix:
         desc += f"{args.log_suffix}"
-    desc = f"_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
+    desc += f"_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
     desc += f"-r{args.training_rounds_v1}"
     if args.log_suffix:
         desc += f"-{args.log_suffix}"

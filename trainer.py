@@ -222,7 +222,7 @@ class LD3Trainer:
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
         params_list = []
         for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
-            params_list.append(torch.tensor([1.5950, 1.3196, 1.5510, 0.6980, 0.8744, 0.9761, 1.3337, 0.6369, 1.0958, 1.2658, 1.6243], device=self.device))#self.ltt_model.forward(latent[i])
+            params_list.append(torch.tensor([0.5711, 1.0383, 0.6429, 1.8285], device=self.device))#self.ltt_model.forward(latent[i])
             
 
         dis_model = DiscretizeModelWrapper( #Changed through LTT
