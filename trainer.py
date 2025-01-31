@@ -611,7 +611,7 @@ class LD3Trainer:
         #log best params
         self._load_checkpoint(reload_data=False)
         logging.info(f"best params1: {self.params1.data}")
-        self.writer.add_text("best params", str(self.params1.numpy()))
+        self.writer.add_text("best params", str(self.params1.cpu().numpy()))
 
 
 

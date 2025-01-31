@@ -217,15 +217,10 @@ def adjust_hyper(args, resolution=64, channel=3):
 
 def create_desc(args):
     NFEs = args.steps
-    method_full = args.solver_name
-    desc = f"{method_full}-N{NFEs}-b{args.prior_bound}-{args.loss_type}-lr2{args.lr_time_2}"
-    desc += f"rv1{args.training_rounds_v1}-rv2{args.training_rounds_v2}-seed{args.seed}"
-    if args.no_v1:
-        desc += "-no_v1_only_v2"
-    if args.match_prior:
-        desc += "-match_prior"
+    #method_full = args.solver_name
+    desc = f"LD3_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
+    desc += f"-rv1{args.training_rounds_v1}-seed{args.seed}"
     return desc
-
 
 
 def prepare_paths(args):
