@@ -313,7 +313,7 @@ class LD3Trainer:
                 outputs.append(output)
                 targets.append(target)
 
-                if self.eval_on_one:
+                if self.eval_on_one: #we only evaluate on 10 validation steps like this TODO: maybe change?
                     break 
                     
         output = torch.cat(outputs, dim=0)
