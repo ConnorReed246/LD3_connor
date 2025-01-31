@@ -13,6 +13,7 @@ captions_val2014.json
 *zip
 logs/
 logs_backup/
+# runs/
 *pt 
 *pkl 
 *png
@@ -21,6 +22,7 @@ logs_backup/
 test_scripts/*
 all_logs
 all_fids
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
