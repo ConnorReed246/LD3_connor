@@ -225,6 +225,7 @@ class LD3Trainer:
     def _solve_ode(self, timesteps=None, img=None, latent=None, condition=None, uncondition=None, valid=False): 
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
+        # self.params1 = torch.tensor([1.5950, 1.3196, 1.5510, 0.6980, 0.8744, 0.9761, 1.3337, 0.6369, 1.0958, 1.2658, 1.6243], device=self.device)
         dis_model = discretize_model_wrapper( #TODO change this to U-net etc.
             self.params1,
             self.params2,
@@ -543,8 +544,8 @@ class LD3Trainer:
                 logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
                 self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
                 
-                latent_optimizer.step()
-                latent_optimizer.zero_grad()
+                # latent_optimizer.step()
+                # latent_optimizer.zero_grad()
 
                 if loader_idx == 0:
                     torch.nn.utils.clip_grad_norm_(self.params1, 1.0)
@@ -565,11 +566,11 @@ class LD3Trainer:
                         logging.info(f"{self._current_version} Reach min lr2 5 times. Stop training.")
                         return no_change, True
                 
-                with torch.no_grad():
-                    latent, to_update_mask = self._update_latents(latent, condition, uncondition, ori_latent, img, latent_params, loss_vector_ref, self.prior_bound)
-                    if loader_idx == 1 and to_update_mask.sum().item() > 0:
-                        # check if this valid latent is moved
-                        no_change = False
+                # with torch.no_grad():
+                #     latent, to_update_mask = self._update_latents(latent, condition, uncondition, ori_latent, img, latent_params, loss_vector_ref, self.prior_bound)
+                #     if loader_idx == 1 and to_update_mask.sum().item() > 0:
+                #         # check if this valid latent is moved
+                #         no_change = False
                 
                 ori_latent = ori_latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
                 latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
