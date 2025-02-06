@@ -150,7 +150,7 @@ class LD3Trainer:
         self.time_min = self.noise_schedule.inverse_lambda(self.lambda_max)
 
         # Initialize baseline, what does this do?
-        self._compute_baseline()
+        # self._compute_baseline()
 
         # Initialize loss function
         self.loss_type = training_config.loss_type #LPIPS -> differnece in two images 
@@ -562,6 +562,7 @@ class LD3Trainer:
                 return
             self.cur_round += 1
             
+            #learning rate decreases with time TODO maybe remvove this?
             if no_latent_change and self.prior_bound > 0:
                 self.shift_lr *= self.shift_lr_decay
         

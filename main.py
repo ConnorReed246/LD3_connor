@@ -146,6 +146,14 @@ def main(args):
     trainer = LD3Trainer(model_config, training_config)
         
     trainer.train(args.training_rounds_v1)
+
+    
+
+
+
+
+
+
     end = time.time()
     logging.info(f"Training time: {end - start}")
     Tensorboard_Logger.close()
