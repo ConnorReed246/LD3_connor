@@ -30,6 +30,7 @@ class LTT_model(nn.Module):
     def forward(self, x):
         out = self.unet(x)
         out = self.mlp(out)
+
         # no activation and no softmax at the end
         return out
 

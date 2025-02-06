@@ -220,8 +220,6 @@ def create_desc(args):
         desc += f"{args.log_suffix}"
     desc += f"_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
     desc += f"-r{args.training_rounds_v1}"
-    if args.log_suffix:
-        desc += f"-{args.log_suffix}"
     return desc
 
 

@@ -111,7 +111,7 @@ class LD3Trainer:
         self.valid_batch_size = training_config.valid_batch_size
         self._create_valid_loaders()
         self._create_train_loader()
-        self.eval_on_one = True
+        self.eval_on_one = False #Maybe change back, but probably better to leave it to keep loss consistent
 
         # Training state
         self.cur_iter = 0
@@ -272,7 +272,7 @@ class LD3Trainer:
     def _is_in_version_1(self):
         return self.cur_round < self.training_rounds_v1
 
-    def _compute_baseline(self): 
+    def _compute_baseline(self): #just for visualisation
         self.straight_line = torch.linspace(self.lambda_min, self.lambda_max, self.steps + 1)
         self.time_logSNR = self.noise_schedule.inverse_lambda(self.straight_line).to(self.device)        
         time_max = self.noise_schedule.inverse_lambda(self.lambda_min)
@@ -419,7 +419,7 @@ class LD3Trainer:
             self._load_checkpoint(reload_data=True)
             self.count_worse = 0
 
-            if self.eval_on_one:
+            if self.eval_on_one: 
                 self.eval_on_one = False
                 self.best_loss, _, _ = self._run_validation()
                 logging.info("Start evaluation on all valid set from now. Not decay learning rate.")
