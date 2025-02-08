@@ -494,23 +494,19 @@ class LD3Trainer:
             latents, targets, conditions, unconditions = [], [], [], []
             for img, latent, condition, uncondition in loader: #1 at a time in validation
 
-                ############################## TENSORBOARD ##############################
-                if loader_idx == 0 and self.cur_iter == 0:
-                    latent = latent.to(self.device)
-                    self.writer.add_graph(self.ltt_model, latent)
-                ########################################################################
+
 
                 img, latent, condition, uncondition = move_tensor_to_device(img, latent, condition, uncondition, device=self.device)
                 
                 # Flattent latents
                 batch_size = latent.shape[0]
-                latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
-                # latent_to_update = latent.clone().detach().reshape(batch_size, -1).to(self.device)
-                # latent_params = torch.nn.Parameter(latent_to_update)
-                # latent_params.requires_grad = True
-        
-                # latent_optimizer = torch.optim.SGD([latent_params], lr=self.shift_lr)
+                
+                ############################## TENSORBOARD ##############################
+                if loader_idx == 0 and self.cur_iter == 0:
+                    self.writer.add_graph(self.ltt_model, latent[:1])
+                ########################################################################
 
+                latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
                 loss, _, _ = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=False)
                 loss.backward()
                 logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
