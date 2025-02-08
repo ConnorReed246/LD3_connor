@@ -417,7 +417,8 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.fc1(x))  # First layer with ReLU activation
         x = F.relu(self.fc2(x))  # Second layer with ReLU activation
         x = self.fc3(x)  # Output layer
-        x = torch.sigmoid(x) * 2  # Scale output to [0, 2] -> originally between [0, 1]
+        x = torch.sigmoid(x) * 2  # Scale output to [0, 2] -> originally between [0, 1] #TODO STILL NEED THIS FOR NOW SINCE sometimes we output big number that will be massive when used as exponent in softmax
+        x = torch.softmax(x, dim=0)  # Softmax activation since it isn't done in transformation afterwards anymore
         return x
 
 
