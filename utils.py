@@ -130,6 +130,7 @@ def parse_arguments():
     other_group.add_argument("--num_prompts", type=int, default=5, help="Number of prompts we want to use, default 5")
     other_group.add_argument("--force_train", type = bool, default=False, help="Force retrain or not")
     other_group.add_argument("--log_suffix", type = str, default="", help="Log suffix")
+    other_group.add_argument("--n_trials", type = int, default=10, help="Number of times to run the same experiment before taking best params")
     args = parser.parse_args()
 
     # Load the config file if specified

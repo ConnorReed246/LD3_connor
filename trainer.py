@@ -587,7 +587,8 @@ class DiscretizeModelWrapper:
         time1 = input1
         t_max, t_min = self.noise_schedule.inverse_lambda(self.lambda_min).to(time1.device), self.noise_schedule.inverse_lambda(self.lambda_max).to(time1.device)
         time_plus = torch.nn.functional.softmax(time1, dim=0)
-        time_md = torch.cumsum(time_plus, dim=0).flip(0)
+        exit() #TODO WE NEED TO ADAPT THIS BEFORE USING IT
+        time_md = torch.cumsum(time1, dim=0).flip(0)
         normed = (time_md - time_md[-1]) / (time_md[0] - time_md[-1])
         time_steps = normed * (t_max - t_min) + t_min
         mask = torch.ones_like(normed)
@@ -597,8 +598,8 @@ class DiscretizeModelWrapper:
 
     def model_lambda_fn(self, input1):
         lambda1 = input1
-        lamb_plus = F.softmax(lambda1, dim=0)
-        lamb_md = torch.cumsum(lamb_plus, dim=0)
+        # lamb_plus = F.softmax(lambda1, dim=0)
+        lamb_md = torch.cumsum(lambda1, dim=0)
         normed = (lamb_md - lamb_md.min()) / (lamb_md.max() - lamb_md.min())
         lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
         mask = torch.ones_like(lamb_steps1)
