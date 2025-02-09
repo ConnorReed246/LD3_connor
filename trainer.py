@@ -221,8 +221,10 @@ class LD3Trainer:
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
         params_list = []
-        for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
-            params_list.append(self.ltt_model.forward(latent[i]))
+        # for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
+        #     params_list.append(self.ltt_model.forward(latent[i].unsqueeze(0))) #TODO maybe change to forward
+
+        params_list = self.ltt_model.forward(latent)
             
 
         dis_model = DiscretizeModelWrapper( #Changed through LTT
@@ -232,7 +234,8 @@ class LD3Trainer:
             time_mode = self.time_mode,
         )
 
-        timesteps_list  = [dis_model.convert(params) for params in params_list]
+        # timesteps_list  = [dis_model.convert(params) for params in params_list]
+        timesteps_list = dis_model.convert(params_list)
         self.timesteps_list = timesteps_list
 
         #calculate timesteps from lambdas
@@ -240,7 +243,8 @@ class LD3Trainer:
         # lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
         # self.logSNR1 = lamb1.detach().cpu()
 
-        x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent] # batch size x 3 x 32 x 32
+        #x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent] # batch size x 3 x 32 x 32
+        x_next_list = self.noise_schedule.prior_transformation(latent)
         #with timesteps calculate x_next_
 
         x_next_computed = []
@@ -263,7 +267,7 @@ class LD3Trainer:
         logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
 
         return loss, x_next_computed.float(), img.float()
-
+        
 
     @property
     def _current_version(self):
@@ -408,7 +412,7 @@ class LD3Trainer:
 
                 # for i in range(len(self.t_steps1)):
                 #     self.writer.add_scalar(f"timestep/{i}", self.t_steps1[i], iter)
-                self.writer.add_histogram("Timesteps/Distribution", torch.stack(self.timesteps_list), iter)
+                self.writer.add_histogram("Timesteps/Distribution", self.timesteps_list, iter)
 
 
         ###############################################################
@@ -486,6 +490,7 @@ class LD3Trainer:
         self._examine_checkpoint(self.cur_iter) # run validation on current latent and time steps
 
         for loader_idx, loader in enumerate([self.train_loader, self.valid_loader]):
+            
             if loader_idx == 1 and self.prior_bound == 0.0:
                 continue
 
@@ -593,16 +598,17 @@ class DiscretizeModelWrapper:
         return time_steps
 
     def model_lambda_fn(self, input1):
-        lambda1 = input1
-        # lamb_plus = F.softmax(lambda1, dim=0)
-        lamb_md = torch.cumsum(lambda1, dim=0)
-        normed = (lamb_md - lamb_md.min()) / (lamb_md.max() - lamb_md.min())
-        lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
-        mask = torch.ones_like(lamb_steps1)
+        lambda1 = input1  # Shape: [batch_size, num_steps+1]
+        # Cumulative sum along the time dimension (dim=1)
+        lamb_md = torch.cumsum(lambda1, dim=1)  # Now keeps batch dimension
         
-        mask[0] = 0.
-        mask[-1] = 0.
-
+        # Normalize per sample in the batch
+        min_vals = lamb_md.min(dim=1, keepdim=True).values
+        max_vals = lamb_md.max(dim=1, keepdim=True).values
+        normed = (lamb_md - min_vals) / (max_vals - min_vals + 1e-8)  # Add epsilon to avoid division by zero
+        
+        # Scale to lambda range
+        lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
         time1 = self.noise_schedule.inverse_lambda(lamb_steps1)
         return time1
 

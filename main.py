@@ -111,7 +111,7 @@ def main(args):
         valid_data=valid_dataset,
         train_batch_size=args.main_train_batch_size,
         valid_batch_size=args.main_valid_batch_size,
-        lr_time_1=args.lr_time_1,
+        lr_time_1=args.lr_time_1 * args.main_train_batch_size,
         shift_lr=args.shift_lr,
         shift_lr_decay=args.shift_lr_decay,
         min_lr_time_1=args.min_lr_time_1,

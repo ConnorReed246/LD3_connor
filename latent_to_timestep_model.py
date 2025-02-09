@@ -14,10 +14,6 @@ class LTT_model(nn.Module):
     def __init__(self, steps: int = 10):
         super().__init__()
 
-        # self.unet = SongUNet_Encoding(
-        #     img_resolution=32,                     # Image resolution at input/output.
-        #     in_channels=3,                        # Number of color channels at input.
-        # )
         self.unet = SimpleUNet_Encoding(
             in_channels=3
         )
@@ -31,7 +27,6 @@ class LTT_model(nn.Module):
         out = self.unet(x)
         out = self.mlp(out)
 
-        # no activation and no softmax at the end
         return out
 
 
@@ -85,18 +80,18 @@ class SimpleUNet_Encoding(torch.nn.Module):
 class SimpleMLP(nn.Module):
     def __init__(self, input_size, output_size, hidden_size=100):
         super(SimpleMLP, self).__init__()
-        # Define MLP layers
-        self.fc1 = nn.Linear(input_size, hidden_size)  # First layer
-        self.fc2 = nn.Linear(hidden_size, hidden_size)  # Hidden layer
-        self.fc3 = nn.Linear(hidden_size, output_size)  # Output layer
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, output_size)
 
-    def forward(self, x, batch_size = 1):
-        x = x.view(-1) #x.view(x.size(0), -1) # Flatten input from [B, C, H, W] to [B, C*H*W]
-        x = F.relu(self.fc1(x))  # First layer with ReLU activation
-        x = F.relu(self.fc2(x))  # Second layer with ReLU activation
-        x = self.fc3(x)  # Output layer
-        x = torch.sigmoid(x) * 2  # Scale output to [0, 2] -> originally between [0, 1] #TODO STILL NEED THIS FOR NOW SINCE sometimes we output big number that will be massive when used as exponent in softmax
-        x = torch.softmax(x, dim=0)  # Softmax activation since it isn't done in transformation afterwards anymore
+    def forward(self, x):
+        # Flatten the input while keeping the batch dimension
+        x = x.view(x.size(0), -1)  # Shape: [batch_size, input_size]
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        x = torch.sigmoid(x) * 2  # Scale to [0, 2]
+        x = torch.softmax(x, dim=1)  # Apply softmax along the class dimension
         return x
 
 
@@ -107,26 +102,33 @@ if __name__ == "__main__":
         data_folder=data_dir, 
         limit=10
     )
-    ori_latents = [latent.clone() for latent in latents]
+    def custom_collate_fn(batch):
+        collated_batch = []
+        for samples in zip(*batch):
+            if any(item is None for item in samples):
+                collated_batch.append(None)
+            else:
+                collated_batch.append(torch.utils.data._utils.collate.default_collate(samples))
+        return collated_batch
 
     loader = DataLoader(
         LD3Dataset(
-            ori_latents,
             latents,
             targets,
             conditions,
             unconditions,
         ),
+        collate_fn=custom_collate_fn,
         batch_size=4,  # Adjust batch size as needed
-        shuffle=True
+        shuffle=False,
     )
 
     model = LTT_model()
-    print(model)
+    # print(model)
 
     # Forward pass
     for batch in loader:
-        img, latent, ori_latent, condition, uncondition = batch
+        img, latent, condition, uncondition = batch
         outputs = model(latent)
         print(outputs.shape)
         print(outputs)
