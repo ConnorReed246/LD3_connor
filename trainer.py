@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import torch 
 from torch.utils.data import DataLoader
-from torch.nn import functional as F
+from torch.nn import functional as F, CrossEntropyLoss
 import torchvision
 
 import lpips 
@@ -59,7 +59,8 @@ class TrainingConfig:
     visualize: bool = False
     no_v1: bool = False
     prior_timesteps: Optional[List[float]] = None
-    match_prior: bool = False
+    match_prior: bool = False,
+    use_optimal_params: bool = False
     
 @dataclass
 class ModelConfig:
@@ -112,6 +113,7 @@ class LD3Trainer:
         self._create_valid_loaders()
         self._create_train_loader()
         self.eval_on_one = False #Maybe change back, but probably better to leave it to keep loss consistent
+        self.use_optimal_params = training_config.use_optimal_params
 
         # Training state
         self.cur_iter = 0
@@ -155,6 +157,7 @@ class LD3Trainer:
         # Initialize loss function
         self.loss_type = training_config.loss_type #LPIPS -> differnece in two images 
         self.loss_fn = self._initialize_loss_fn()
+        self.loss_fn_optimal_params = CrossEntropyLoss()
         self.loss_vector = None
 
 
@@ -217,56 +220,52 @@ class LD3Trainer:
     def _create_train_loader(self):
         self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn)
     
-    def _solve_ode(self, img=None, latent=None, condition=None, uncondition=None, valid=False): #TODO remove timestep
+    def _solve_ode(self, img=None, latent=None, optimal_param = None, condition=None, uncondition=None, valid=False, use_optimal_params: bool = False): #TODO remove timestep
         batch_size = latent.shape[0]
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
-        params_list = []
-        # for i in range (batch_size): #TODO maybe rewrite to user tensor matricies and not lists of tensors
-        #     params_list.append(self.ltt_model.forward(latent[i].unsqueeze(0))) #TODO maybe change to forward
 
-        params_list = self.ltt_model.forward(latent)
-            
+        with torch.set_grad_enabled(not valid):
+            params_list = self.ltt_model.forward(latent)
 
-        dis_model = DiscretizeModelWrapper( #Changed through LTT
-            lambda_max=self.lambda_max,
-            lambda_min=self.lambda_min,
-            noise_schedule=self.noise_schedule,
-            time_mode = self.time_mode,
-        )
 
-        # timesteps_list  = [dis_model.convert(params) for params in params_list]
-        timesteps_list = dis_model.convert(params_list)
-        self.timesteps_list = timesteps_list
+            if use_optimal_params and not valid: #this is only run on training data when we want to match optimal params
+                self.loss_vector = self.loss_fn_optimal_params(params_list, optimal_param)
+                loss = self.loss_vector.mean()
+                return loss, None, None
 
-        #calculate timesteps from lambdas
-        # self.t_steps1 = timesteps1.detach()
-        # lamb1 = self.noise_schedule.marginal_lambda(timesteps1)
-        # self.logSNR1 = lamb1.detach().cpu()
+            else: #this is the normal case
+                dis_model = DiscretizeModelWrapper( #Changed through LTT
+                lambda_max=self.lambda_max,
+                lambda_min=self.lambda_min,
+                noise_schedule=self.noise_schedule,
+                time_mode = self.time_mode,
+                )
 
-        #x_next_list = [self.noise_schedule.prior_transformation(latent) for latent in latent] # batch size x 3 x 32 x 32
-        x_next_list = self.noise_schedule.prior_transformation(latent)
-        #with timesteps calculate x_next_
+                timesteps_list = dis_model.convert(params_list)
+                self.timesteps_list = timesteps_list
 
-        x_next_computed = []
-        for timestep, x_next in zip(timesteps_list, x_next_list):
-            x_next = self.solver.sample_simple( #visual(x_next.unsqueeze(0), "before_sampling.png") at this point just noise
-                model_fn=self.net,
-                x=x_next.unsqueeze(0),#.unsqueeze(0), #add batch 1 to mimic prior package behavior
-                timesteps=timestep,
-                order=self.order,
-                NFEs=self.steps,
-                condition=condition,
-                unconditional_condition=uncondition,
-                **self.solver_extra_params,
-            ) # this is already [3,3,32,32] for some reason
-            x_next_computed.append(x_next)#maybe need to drop first entries?
+                x_next_list = self.noise_schedule.prior_transformation(latent) #Multiply with timestep in edm case (x80 in beginning)
 
-        x_next_computed = self.decoding_fn(torch.cat(x_next_computed, dim=0)) # this is x'_0, needs to be stacked?
-        self.loss_vector = self.loss_fn(img.float(), x_next_computed.float()).squeeze()   #Custom Loss Function: To ensure the timesteps are decreasing, you can define a custom loss function that penalizes outputs that do not meet this criterion. For instance, you can use a term that penalizes differences between consecutive elements if they are not negative.
-        loss = self.loss_vector.mean()
-        logging.info(f"{self._current_version} Loss: {loss.item()}") #loss of singular images?
+                x_next_computed = []
+                for timestep, x_next in zip(timesteps_list, x_next_list):
+                    x_next = self.solver.sample_simple(
+                        model_fn=self.net,
+                        x=x_next.unsqueeze(0),
+                        timesteps=timestep,
+                        order=self.order,
+                        NFEs=self.steps,
+                        condition=condition,
+                        unconditional_condition=uncondition,
+                        **self.solver_extra_params,
+                    )
+                    x_next_computed.append(x_next)#This was wrong the whole time?
 
-        return loss, x_next_computed.float(), img.float()
+                x_next_computed = self.decoding_fn(torch.cat(x_next_computed, dim=0))                
+                self.loss_vector = self.loss_fn(img.float(), x_next_computed.float()).squeeze()
+                loss = self.loss_vector.mean()
+                logging.info(f"{self._current_version} Loss: {loss.item()}")
+
+                return loss, x_next_computed.float(), img.float()
         
 
     @property
@@ -301,16 +300,16 @@ class LD3Trainer:
         outputs = list()
         targets = list()
         with torch.no_grad():
-            for img, latent, condition, uncondition in self.valid_only_loader:
+            for img, latent, condition, uncondition, optimal_param in self.valid_only_loader:
                 # condition = condition.squeeze()
                 # uncondition = uncondition.squeeze()
                 img = img.to(self.device)
                 latent = latent.to(self.device).reshape(latent.shape[0], -1)
-                if condition is not None:
-                    condition = condition.to(self.device)
-                if uncondition is not None:
-                    uncondition = uncondition.to(self.device)
-                loss, output, target = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=True) #TODO here we outpus output and target and anaylse the differnce?
+                # if condition is not None:
+                #     condition = condition.to(self.device)
+                # if uncondition is not None:
+                #     uncondition = uncondition.to(self.device)
+                loss, output, target = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=True, use_optimal_params=self.use_optimal_params) #TODO here we outpus output and target and anaylse the differnce?
 
                 total_loss += loss.item()
                 count += 1
@@ -429,7 +428,7 @@ class LD3Trainer:
                 logging.info("Start evaluation on all valid set from now. Not decay learning rate.")
                 return 
 
-            self.optimizer.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer.param_groups[0]['lr'], self.min_lr)
+            self.optimizer.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer.param_groups[0]['lr'], self.min_lr) #IF patience reached we also decay learning rate?
             logging.info(f"{self._current_version} Decay time1 lr to {self.optimizer.param_groups[0]['lr']}")
 
         
@@ -462,6 +461,7 @@ class LD3Trainer:
         else:
             self.valid_data = custom_train_dataset
             self._create_valid_loaders()
+        exit() #TODO this doesn't work and should never be called
 
     def _update_latents(self, latent, condition, uncondition, ori_latent, img, latent_params, loss_vector_ref, prior_bound):
         parameter_data_detached = latent_params.detach()
@@ -489,19 +489,21 @@ class LD3Trainer:
         
         self._examine_checkpoint(self.cur_iter) # run validation on current latent and time steps
 
-        for loader_idx, loader in enumerate([self.train_loader, self.valid_loader]):
+        for loader_idx, loader in enumerate([self.train_loader]): #TODO validation at end of round for now since it happens during anyway , self.valid_loader
             
-            if loader_idx == 1 and self.prior_bound == 0.0:
-                continue
+            if loader_idx == 1: 
+                if self.prior_bound == 0.0:
+                    print("skipped validation?")
+                    continue
+                valid = True
 
-            self._set_trainable_params(is_train=loader_idx == 0, is_no_v1=self.no_v1)
+            else:
+                valid = False
             
-            latents, targets, conditions, unconditions = [], [], [], []
-            for img, latent, condition, uncondition in loader: #1 at a time in validation
+            # latents, targets, conditions, unconditions = [], [], [], []
+            for img, latent, condition, uncondition, optimal_param in loader: #1 at a time in validation
 
-
-
-                img, latent, condition, uncondition = move_tensor_to_device(img, latent, condition, uncondition, device=self.device)
+                img, latent, condition, uncondition, optimal_param = move_tensor_to_device(img, latent, condition, uncondition, optimal_param, device=self.device)
                 
                 # Flattent latents
                 batch_size = latent.shape[0]
@@ -512,16 +514,14 @@ class LD3Trainer:
                 ########################################################################
 
                 latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
-                loss, _, _ = self._solve_ode(img=img, latent=latent, condition=condition, uncondition=uncondition, valid=False)
-                loss.backward()
-                logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
-                self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
-                
-                # latent_optimizer.step()
-                # latent_optimizer.zero_grad()
+                loss, _, _ = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=valid, use_optimal_params = self.use_optimal_params)
 
                 if loader_idx == 0:
-                    torch.nn.utils.clip_grad_norm_(self.params, 1.0)
+
+                    loss.backward()
+                    logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
+                    self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
+                    # torch.nn.utils.clip_grad_norm_(self.params, 1.0) this does nothing since we aren't upd
 
                     #TODO we have to rewrite this so that self.ltt model is backpropagated
                     self.optimizer.step() #does this ever change?
@@ -535,17 +535,18 @@ class LD3Trainer:
                     self.cur_iter += 1
                     self._examine_checkpoint(self.cur_iter) # evaluate
         
-            
-                latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
-                img = img.detach().cpu()
-                condition = condition.detach().cpu() if condition is not None else None
-                uncondition = uncondition.detach().cpu() if uncondition is not None else None
+
+
+                # latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
+                # img = img.detach().cpu()
+                # condition = condition.detach().cpu() if condition is not None else None
+                # uncondition = uncondition.detach().cpu() if uncondition is not None else None
                 
-                for j in range(latent.shape[0]):
-                    targets.append(img[j])
-                    latents.append(latent[j])
-                    conditions.append(condition[j] if condition is not None else None)
-                    unconditions.append(uncondition[j] if uncondition is not None else None)
+                # for j in range(latent.shape[0]):
+                #     targets.append(img[j])
+                #     latents.append(latent[j])
+                #     conditions.append(condition[j] if condition is not None else None)
+                #     unconditions.append(uncondition[j] if uncondition is not None else None)
             
         return no_change, False
         

@@ -28,8 +28,8 @@ def gen_optimal_timesteps(args):
         noise_schedule=noise_schedule,
         unipc_variant=args.unipc_variant,
     )
-    latents, targets, _, _ = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
-        data_folder=args.data_dir, limit=args.num_train + args.num_valid
+    latents, targets, _, _, _ = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
+        data_folder=args.data_dir, limit=args.num_train + args.num_valid, use_optimal_params=False
     )
     
     training_config = TrainingConfig(

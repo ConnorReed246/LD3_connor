@@ -194,6 +194,6 @@ class UniPC(ODESolver):
             if return_intermediates:
                 x_list.append(x)
         if return_intermediates:
-            return x_list
+            return x_list #visual(torch.cat(x_list, dim=0))
         return x #this is the image
 

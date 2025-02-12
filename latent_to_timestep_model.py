@@ -98,9 +98,12 @@ class SimpleMLP(nn.Module):
 if __name__ == "__main__":
     # Dataset
     data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
-    latents, targets, conditions, unconditions = load_data_from_dir( # this is what we take from training, targets are original images and latents latent goal
+    steps = 5
+    latents, targets, conditions, unconditions, optimal_params = load_data_from_dir( # this is what we take from training, targets are original images and latents latent goal
         data_folder=data_dir, 
-        limit=10
+        limit=10,
+        use_optimal_timesteps=True,
+        steps=steps
     )
     def custom_collate_fn(batch):
         collated_batch = []
@@ -117,19 +120,26 @@ if __name__ == "__main__":
             targets,
             conditions,
             unconditions,
+            optimal_params
         ),
         collate_fn=custom_collate_fn,
         batch_size=4,  # Adjust batch size as needed
         shuffle=False,
     )
 
-    model = LTT_model()
+    model = LTT_model(steps = steps)
+    loss_fn = nn.CrossEntropyLoss()
     # print(model)
 
     # Forward pass
     for batch in loader:
-        img, latent, condition, uncondition = batch
-        outputs = model(latent)
-        print(outputs.shape)
-        print(outputs)
+        img, latent, condition, uncondition, optimal_params = batch
+        outputs = model.forward(latent)
+
+        print(f"outputs: {outputs}")
+        print(f"optimal_params: {optimal_params}")
+    	
+        loss = loss_fn(outputs, optimal_params)
+        print(f"loss: {loss}")
+
         break  # Remove this break to process the entire dataset

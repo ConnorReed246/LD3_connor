@@ -86,8 +86,8 @@ def main(args):
         noise_schedule=noise_schedule,
         unipc_variant=args.unipc_variant,
     )
-    latents, targets, conditions, unconditions = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
-        data_folder=args.data_dir, limit=args.num_train + args.num_valid
+    latents, targets, conditions, unconditions, optimal_params = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
+        data_folder=args.data_dir, limit=args.num_train + args.num_valid, use_optimal_params=args.use_optimal_params, steps=args.steps
     )
 
     valid_dataset = LD3Dataset(
@@ -95,6 +95,7 @@ def main(args):
         targets[: args.num_valid],
         conditions[: args.num_valid],
         unconditions[: args.num_valid],
+        optimal_params[: args.num_valid],
     )
     if args.num_valid > 0 :
         train_dataset = LD3Dataset(
@@ -102,6 +103,7 @@ def main(args):
             targets[args.num_valid :],
             conditions[args.num_valid :],
             unconditions[args.num_valid :],
+            optimal_params[args.num_valid :],
         )
     else:
         valid_dataset = train_dataset
@@ -126,6 +128,7 @@ def main(args):
         no_v1=args.no_v1,
         prior_timesteps=args.gits_ts,
         match_prior=args.match_prior,
+        use_optimal_params=args.use_optimal_params,
     )
     model_config = ModelConfig(
         net=wrapped_model,
