@@ -108,7 +108,7 @@ def parse_arguments():
     training_group.add_argument("--low_gpu", action="store_true", help="If we using low-mem gpu, we need to use checkpoint.")
     training_group.add_argument("--scale", type=int, help="Guidance scale")
     training_group.add_argument("--match_prior", action="store_true", help="Whether to initial params by prior timesteps")
-    training_group.add_argument("--use_optimal_params", type=bool, help="Prior timesteps as params")
+    training_group.add_argument("--use_optimal_params", default= False, type=bool, help="Prior timesteps as params")
 
     testing_group = parser.add_argument_group('Testing Parameters')
     testing_group.add_argument("--load_from_version", type=int, default=2, help="Load from whihc version, default=2")

@@ -18,7 +18,7 @@ class LTT_model(nn.Module):
             in_channels=3
         )
         self.mlp = SimpleMLP(
-            input_size=1024 * 2 * 2,
+            input_size=256 * 8 * 8,
             output_size=steps + 1,
             hidden_size=100
         )
@@ -29,21 +29,22 @@ class LTT_model(nn.Module):
 
         return out
 
-
 #https://medium.com/@fernandopalominocobo/mastering-u-net-a-step-by-step-guide-to-segmentation-from-scratch-with-pytorch-6a17c5916114
 class SimpleUNet_Encoding(torch.nn.Module):
     class DoubleConv(nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
-            self.conv_op = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True)
-            )
+            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(out_channels)
+            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(out_channels)
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
         def forward(self, x):
-            return self.conv_op(x)
+            residual = self.shortcut(x)
+            x = F.leaky_relu(self.bn1(self.conv1(x)), 0.1)
+            x = self.bn2(self.conv2(x))
+            return F.leaky_relu(x + residual, 0.1)
     class DownSample(nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
@@ -60,19 +61,13 @@ class SimpleUNet_Encoding(torch.nn.Module):
         super().__init__()
         self.down_convolution_1 = SimpleUNet_Encoding.DownSample(in_channels, 64)
         self.down_convolution_2 = SimpleUNet_Encoding.DownSample(64, 128)
-        self.down_convolution_3 = SimpleUNet_Encoding.DownSample(128, 256)
-        self.down_convolution_4 = SimpleUNet_Encoding.DownSample(256, 512)
-
-        self.bottle_neck = SimpleUNet_Encoding.DoubleConv(512, 1024)
-
+        self.bottle_neck = SimpleUNet_Encoding.DoubleConv(128, 256)
 
     def forward(self, x):
         down_1, p1 = self.down_convolution_1(x)
         down_2, p2 = self.down_convolution_2(p1)
-        down_3, p3 = self.down_convolution_3(p2)
-        down_4, p4 = self.down_convolution_4(p3)
 
-        b = self.bottle_neck(p4)
+        b = self.bottle_neck(p2)
         return b
 
 
@@ -91,20 +86,27 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         x = torch.sigmoid(x) * 2  # Scale to [0, 2]
-        x = torch.softmax(x, dim=1)  # Apply softmax along the class dimension
+        # x = torch.softmax(x, dim=1)  # Apply softmax along the class dimension
         return x
 
 
 if __name__ == "__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Dataset
     data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
     steps = 5
+    train_size = 450
+    valid_size = 50
+    train_batch_size = 5
+
     latents, targets, conditions, unconditions, optimal_params = load_data_from_dir( # this is what we take from training, targets are original images and latents latent goal
         data_folder=data_dir, 
-        limit=10,
-        use_optimal_timesteps=True,
+        limit=train_size+valid_size,
+        use_optimal_params=True,
         steps=steps
     )
+
+
     def custom_collate_fn(batch):
         collated_batch = []
         for samples in zip(*batch):
@@ -114,32 +116,100 @@ if __name__ == "__main__":
                 collated_batch.append(torch.utils.data._utils.collate.default_collate(samples))
         return collated_batch
 
-    loader = DataLoader(
+    train_loader = DataLoader(
         LD3Dataset(
-            latents,
-            targets,
-            conditions,
-            unconditions,
-            optimal_params
+            latents[valid_size:],
+            targets[valid_size:],
+            conditions[valid_size:],
+            unconditions[valid_size:],
+            optimal_params[valid_size:],
         ),
         collate_fn=custom_collate_fn,
-        batch_size=4,  # Adjust batch size as needed
+        batch_size=train_batch_size,  # Adjust batch size as needed
+        shuffle=True,
+    )
+
+    valid_loader = DataLoader(
+        LD3Dataset(
+            latents[:valid_size],
+            targets[:valid_size],
+            conditions[:valid_size],
+            unconditions[:valid_size],
+            optimal_params[:valid_size],
+        ),
+        collate_fn=custom_collate_fn,
+        batch_size=50,  # Adjust batch size as needed
         shuffle=False,
     )
 
+
+
     model = LTT_model(steps = steps)
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.MSELoss()#CrossEntropyLoss()
+    model = model.to(device)
+    learning_rate = 1e-4
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+
+
     # print(model)
-
+    loss_list = []
+    valid_loss_list = []
+    valid_loss_index = []
     # Forward pass
-    for batch in loader:
-        img, latent, condition, uncondition, optimal_params = batch
-        outputs = model.forward(latent)
+    for i in range(20):
+        print(f"\n epoch: {i}")
+        for j, batch in enumerate(train_loader):
+            img, latent, condition, uncondition, optimal_params = batch
 
-        print(f"outputs: {outputs}")
-        print(f"optimal_params: {optimal_params}")
-    	
-        loss = loss_fn(outputs, optimal_params)
-        print(f"loss: {loss}")
+            latent = latent.to(device)
+            optimal_params = optimal_params.to(device)
 
-        break  # Remove this break to process the entire dataset
+            outputs = model(latent)
+
+            # print(f"outputs: {outputs}")
+            # print(f"optimal_params: {optimal_params}")
+            
+            loss = loss_fn(outputs, optimal_params)
+            # print(f"loss: {loss}")
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            # if j % 500 == 0:
+            #     print(f"\n \n loss: {loss.item()}")
+            #     for param in model.parameters():
+            #         if param.grad is not None:
+            #             print(f" grad norm: {param.grad.norm().item()}")
+                        
+            optimizer.zero_grad()
+            loss_list.append(min(loss.item(),0.1))
+
+
+        for batch in valid_loader:
+            with torch.no_grad():
+                img, latent, condition, uncondition, optimal_params = batch
+
+                latent = latent.to(device)
+                optimal_params = optimal_params.to(device)
+                outputs = model(latent)
+                loss = loss_fn(outputs, optimal_params)
+
+                print(f"outputs: {outputs[:5]}")
+                print(f"optimal_params: {optimal_params[:5]}")
+                print(f"loss: {loss}")
+                valid_loss_list.append(min(loss.mean().item(), 0.5))
+                valid_loss_index.append(i*450/train_batch_size)
+
+
+    plt.plot(loss_list, label = "loss")  # Plot the loss curve
+    window_size = 100
+    rolling_window = np.convolve(loss_list, np.ones(window_size)/window_size, mode='valid')
+    plt.plot(rolling_window, label='rolling window average')
+    plt.plot(valid_loss_index, valid_loss_list, label = "valid loss")
+
+    plt.legend()
+
+    #log scale
+    # plt.yscale('log')
+    plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_valid.png")
+

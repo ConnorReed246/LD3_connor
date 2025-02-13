@@ -225,8 +225,7 @@ class LD3Trainer:
         latent = latent.reshape(batch_size, self.channels, self.resolution, self.resolution) 
 
         with torch.set_grad_enabled(not valid):
-            params_list = self.ltt_model.forward(latent)
-
+            params_list = self.ltt_model(latent)
 
             if use_optimal_params and not valid: #this is only run on training data when we want to match optimal params
                 self.loss_vector = self.loss_fn_optimal_params(params_list, optimal_param)
