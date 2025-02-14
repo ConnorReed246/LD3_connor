@@ -34,11 +34,11 @@ class SimpleUNet_Encoding(torch.nn.Module):
     class DoubleConv(nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(out_channels)
-            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
             self.bn2 = nn.BatchNorm2d(out_channels)
-            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
 
         def forward(self, x):
             residual = self.shortcut(x)
@@ -73,20 +73,32 @@ class SimpleUNet_Encoding(torch.nn.Module):
 
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size=100):
-        super(SimpleMLP, self).__init__()
+    class L1NormLayer(nn.Module):
+        def forward(self, x):
+            return x / x.abs().sum(dim=1, keepdim=True)
+    
+
+    def __init__(self, input_size, output_size, hidden_size=100, dropout=0.5):
+        super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
+        self.dropout1 = nn.Dropout(dropout)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.dropout2 = nn.Dropout(dropout)
         self.fc3 = nn.Linear(hidden_size, output_size)
+        self.l1_norm = SimpleMLP.L1NormLayer()
 
     def forward(self, x):
-        # Flatten the input while keeping the batch dimension
-        x = x.view(x.size(0), -1)  # Shape: [batch_size, input_size]
+        x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
+        x = self.dropout1(x)  # Add dropout
         x = F.relu(self.fc2(x))
+        x = self.dropout2(x)  # Add dropout
         x = self.fc3(x)
-        x = torch.sigmoid(x) * 2  # Scale to [0, 2]
+        x = self.l1_norm(x)
+        
+        # x = torch.sigmoid(x) * 2  # Scale to [0, 2]
         # x = torch.softmax(x, dim=1)  # Apply softmax along the class dimension
+
         return x
 
 
@@ -156,7 +168,7 @@ if __name__ == "__main__":
     valid_loss_list = []
     valid_loss_index = []
     # Forward pass
-    for i in range(20):
+    for i in range(50):
         print(f"\n epoch: {i}")
         for j, batch in enumerate(train_loader):
             img, latent, condition, uncondition, optimal_params = batch
@@ -175,11 +187,10 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             optimizer.step()
-            # if j % 500 == 0:
-            #     print(f"\n \n loss: {loss.item()}")
-            #     for param in model.parameters():
-            #         if param.grad is not None:
-            #             print(f" grad norm: {param.grad.norm().item()}")
+            if j % 500 == 0:
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        print(f"Layer: {name} | Grad Norm: {param.grad.norm().item()}")
                         
             optimizer.zero_grad()
             loss_list.append(min(loss.item(),0.1))
