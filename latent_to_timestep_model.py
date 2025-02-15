@@ -94,9 +94,11 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.dropout2(x)  # Add dropout
         x = self.fc3(x)
+        # x = F.softplus(x)
+        x = torch.sigmoid(x) 
         x = self.l1_norm(x)
         
-        # x = torch.sigmoid(x) * 2  # Scale to [0, 2]
+        
         # x = torch.softmax(x, dim=1)  # Apply softmax along the class dimension
 
         return x

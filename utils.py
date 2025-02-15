@@ -83,7 +83,7 @@ def parse_arguments():
     training_group.add_argument("--seed", type=int, help="seed")
     training_group.add_argument("--use_ema",  action="store_true", help="If we use ema for LSUN latent diff")
     training_group.add_argument("--log_path", type=str, help="Folder name for storing evaluation results.")
-    training_group.add_argument("--use_tensorboard", type=bool, default="True", help="Use tensorboard or not.")
+    training_group.add_argument("--use_tensorboard", type=str2bool, nargs='?', const=True, default=True, help="Use tensorboard or not.")
     training_group.add_argument("--old_log_path", type=str, help="Folder name for storing old evaluation results.")
     training_group.add_argument("--data_dir", type=str, help="Path to data dir.")
     training_group.add_argument("--num_train", type=int, help="Number of training sample.")
@@ -108,7 +108,7 @@ def parse_arguments():
     training_group.add_argument("--low_gpu", action="store_true", help="If we using low-mem gpu, we need to use checkpoint.")
     training_group.add_argument("--scale", type=int, help="Guidance scale")
     training_group.add_argument("--match_prior", action="store_true", help="Whether to initial params by prior timesteps")
-    training_group.add_argument("--use_optimal_params", default= False, type=bool, help="Prior timesteps as params")
+    training_group.add_argument("--use_optimal_params",type=str2bool, nargs='?', const=True, default=False, help="Prior timesteps as params")
 
     testing_group = parser.add_argument_group('Testing Parameters')
     testing_group.add_argument("--load_from_version", type=int, default=2, help="Load from whihc version, default=2")
@@ -129,7 +129,7 @@ def parse_arguments():
     other_group = parser.add_argument_group('Other Parameters')
     other_group.add_argument("--prompt_path", type=str, help="Prompt json path for stable diff")
     other_group.add_argument("--num_prompts", type=int, default=5, help="Number of prompts we want to use, default 5")
-    other_group.add_argument("--force_train", type = bool, default=False, help="Force retrain or not")
+    other_group.add_argument("--force_train", type=str2bool, nargs='?', const=True, default=False, help="Force retrain or not")
     other_group.add_argument("--log_suffix", type = str, default="", help="Log suffix")
     other_group.add_argument("--n_trials", type = int, default=10, help="Number of times to run the same experiment before taking best params")
     args = parser.parse_args()
@@ -145,6 +145,17 @@ def parse_arguments():
                 setattr(args, key, value)
 
     return args
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+    
 
 def compute_distance_between_two(x, y, n_channels=3, resolution=256):
     '''

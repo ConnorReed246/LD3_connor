@@ -241,6 +241,8 @@ class LD3Trainer:
                 )
 
                 timesteps_list = dis_model.convert(params_list)
+                self.last_params = params_list
+
                 self.timesteps_list = timesteps_list
 
                 x_next_list = self.noise_schedule.prior_transformation(latent) #Multiply with timestep in edm case (x80 in beginning)
@@ -265,6 +267,7 @@ class LD3Trainer:
                 logging.info(f"{self._current_version} Loss: {loss.item()}")
 
                 return loss, x_next_computed.float(), img.float()
+            
         
 
     @property
@@ -374,7 +377,7 @@ class LD3Trainer:
         if total_loss < self.best_loss:
             self.best_loss = total_loss
             self.count_worse = 0
-            self._save_checkpoint() #saves self.params.data and best_t_steps
+            self._save_checkpoint() 
             #self._visual_times() TODO: maybe revisualize with average timsteps or distributions
             #save_gif(self.snapshot_path)
         else:
@@ -411,7 +414,7 @@ class LD3Trainer:
                 # for i in range(len(self.t_steps1)):
                 #     self.writer.add_scalar(f"timestep/{i}", self.t_steps1[i], iter)
                 self.writer.add_histogram("Timesteps/Distribution", self.timesteps_list, iter)
-
+                self.writer.add_histogram("ParmasCumsum/Distribution", torch.cumsum(self.last_params, dim=1), self.cur_iter)
 
         ###############################################################
             
@@ -582,6 +585,7 @@ class DiscretizeModelWrapper:
         self.lambda_min = lambda_min
         self.noise_schedule = noise_schedule
         self.time_mode = time_mode
+        self.writer = Tensorboard_Logger.get_writer()
 
     
     def model_time_fn(self, input1):
@@ -599,9 +603,13 @@ class DiscretizeModelWrapper:
 
     def model_lambda_fn(self, input1):
         lambda1 = input1  # Shape: [batch_size, num_steps+1]
+        #add small number to each to avoid identical neighboours and renormalize
+        lambda1 += 1e-8
+        lambda1 = lambda1 / lambda1.sum(dim=1, keepdim=True)
         # Cumulative sum along the time dimension (dim=1)
+
         lamb_md = torch.cumsum(lambda1, dim=1)  # Now keeps batch dimension
-        
+
         # Normalize per sample in the batch
         min_vals = lamb_md.min(dim=1, keepdim=True).values
         max_vals = lamb_md.max(dim=1, keepdim=True).values
@@ -610,6 +618,10 @@ class DiscretizeModelWrapper:
         # Scale to lambda range
         lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
         time1 = self.noise_schedule.inverse_lambda(lamb_steps1)
+
+        #guarantee the they are descending
+        
+
         return time1
 
 
