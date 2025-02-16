@@ -66,7 +66,7 @@ def set_seed_everything(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def parse_arguments():
+def parse_arguments(args_list = None):
     parser = argparse.ArgumentParser(description="Description of your program")
 
     parser.add_argument('--all_config')
@@ -132,7 +132,11 @@ def parse_arguments():
     other_group.add_argument("--force_train", type=str2bool, nargs='?', const=True, default=False, help="Force retrain or not")
     other_group.add_argument("--log_suffix", type = str, default="", help="Log suffix")
     other_group.add_argument("--n_trials", type = int, default=10, help="Number of times to run the same experiment before taking best params")
-    args = parser.parse_args()
+    
+    if args_list is not None:
+        args = parser.parse_args(args_list)
+    else:
+        args = parser.parse_args()
 
     # Load the config file if specified
     if args.all_config and os.path.isfile(args.all_config):
