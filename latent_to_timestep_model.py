@@ -156,8 +156,6 @@ if __name__ == "__main__":
         shuffle=False,
     )
 
-
-
     model = LTT_model(steps = steps)
     loss_fn = nn.MSELoss()#CrossEntropyLoss()
     model = model.to(device)
@@ -224,5 +222,10 @@ if __name__ == "__main__":
 
     #log scale
     # plt.yscale('log')
-    plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_valid.png")
+    plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_dropout_0.5.png")
+
+    #save model 
+    save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/runs/RandomModels"
+    torch.save(model.state_dict(), f"{save_path}/model_lr{learning_rate}_batch{train_batch_size}_without_dropout.pth")
+
 
