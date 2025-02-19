@@ -90,12 +90,12 @@ class SimpleMLP(nn.Module):
     def forward(self, x):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
-        x = self.dropout1(x)  # Add dropout
+        # x = self.dropout1(x)  # Add dropout
         x = F.relu(self.fc2(x))
-        x = self.dropout2(x)  # Add dropout
+        # x = self.dropout2(x)  # Add dropout
         x = self.fc3(x)
-        # x = F.softplus(x)
-        x = torch.sigmoid(x) 
+        x = F.softplus(x)
+        # x = torch.sigmoid(x) 
         x = self.l1_norm(x)
         
         

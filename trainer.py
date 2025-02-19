@@ -303,14 +303,8 @@ class LD3Trainer:
         targets = list()
         with torch.no_grad():
             for img, latent, condition, uncondition, optimal_param in self.valid_only_loader:
-                # condition = condition.squeeze()
-                # uncondition = uncondition.squeeze()
                 img = img.to(self.device)
                 latent = latent.to(self.device).reshape(latent.shape[0], -1)
-                # if condition is not None:
-                #     condition = condition.to(self.device)
-                # if uncondition is not None:
-                #     uncondition = uncondition.to(self.device)
                 loss, output, target = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=True, use_optimal_params=self.use_optimal_params) #TODO here we outpus output and target and anaylse the differnce?
 
                 total_loss += loss.item()
@@ -424,11 +418,11 @@ class LD3Trainer:
             self._load_checkpoint(reload_data=True)
             self.count_worse = 0
 
-            if self.eval_on_one: 
-                self.eval_on_one = False
-                self.best_loss, _, _ = self._run_validation()
-                logging.info("Start evaluation on all valid set from now. Not decay learning rate.")
-                return 
+            # if self.eval_on_one: 
+            #     self.eval_on_one = False
+            #     self.best_loss, _, _ = self._run_validation()
+            #     logging.info("Start evaluation on all valid set from now. Not decay learning rate.")
+            #     return 
 
             self.optimizer.param_groups[0]['lr'] = max(self.lr_time_decay * self.optimizer.param_groups[0]['lr'], self.min_lr) #IF patience reached we also decay learning rate?
             logging.info(f"{self._current_version} Decay time1 lr to {self.optimizer.param_groups[0]['lr']}")
@@ -491,64 +485,51 @@ class LD3Trainer:
         
         self._examine_checkpoint(self.cur_iter) # run validation on current latent and time steps
 
-        for loader_idx, loader in enumerate([self.train_loader]): #TODO validation at end of round for now since it happens during anyway , self.valid_loader
+
+        for img, latent, condition, uncondition, optimal_param in self.train_loader: #1 at a time in validation
+
+            img, latent, condition, uncondition, optimal_param = move_tensor_to_device(img, latent, condition, uncondition, optimal_param, device=self.device)
             
-            if loader_idx == 1: 
-                if self.prior_bound == 0.0:
-                    print("skipped validation?")
-                    continue
-                valid = True
-
-            else:
-                valid = False
+            # Flattent latents
+            batch_size = latent.shape[0]
             
-            # latents, targets, conditions, unconditions = [], [], [], []
-            for img, latent, condition, uncondition, optimal_param in loader: #1 at a time in validation
+            ############################## TENSORBOARD ##############################
+            if self.cur_iter == 0:
+                self.writer.add_graph(self.ltt_model, latent[:1])
+            ########################################################################
 
-                img, latent, condition, uncondition, optimal_param = move_tensor_to_device(img, latent, condition, uncondition, optimal_param, device=self.device)
-                
-                # Flattent latents
-                batch_size = latent.shape[0]
-                
-                ############################## TENSORBOARD ##############################
-                if loader_idx == 0 and self.cur_iter == 0:
-                    self.writer.add_graph(self.ltt_model, latent[:1])
-                ########################################################################
+            latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
+            loss, _, _ = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=False, use_optimal_params = self.use_optimal_params)
+            torch.nn.utils.clip_grad_norm_(self.ltt_model.parameters(), 1.0)
+            loss.backward()
+            logging.info(f"{self._current_version} Iter {self.cur_iter} Train Loss: {loss.item()}")
+            self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
+            # torch.nn.utils.clip_grad_norm_(self.params, 1.0) this does nothing since we aren't upd
 
-                latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
-                loss, _, _ = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=valid, use_optimal_params = self.use_optimal_params)
-
-                if loader_idx == 0:
-
-                    loss.backward()
-                    logging.info(f"{self._current_version} Iter {self.cur_iter} {'Train' if loader_idx == 0 else 'Val'} Loss: {loss.item()}")
-                    self.writer.add_scalar(f"Train/Loss", loss.item(), self.cur_iter) #TENSORBOARD
-                    # torch.nn.utils.clip_grad_norm_(self.params, 1.0) this does nothing since we aren't upd
-
-                    #TODO we have to rewrite this so that self.ltt model is backpropagated
-                    self.optimizer.step() #does this ever change?
-                    ##################### TENSORBOARD ##################### #TODO update to new gradients?
-                    # for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
-                    #     self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
-                    #######################################################
-                    self.optimizer.zero_grad()
+            #TODO we have to rewrite this so that self.ltt model is backpropagated
+            self.optimizer.step() #does this ever change?
+            ##################### TENSORBOARD ##################### #TODO update to new gradients?
+            # for i, value in enumerate(self.optimizer_lamb1.param_groups[0]["params"][0].grad):
+            #     self.writer.add_scalar(f"Gradients/{i}", value, self.cur_iter)
+            #######################################################
+            self.optimizer.zero_grad()
 
 
-                    self.cur_iter += 1
-                    self._examine_checkpoint(self.cur_iter) # evaluate
-        
+            self.cur_iter += 1
+            self._examine_checkpoint(self.cur_iter) # evaluate
+    
 
 
-                # latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
-                # img = img.detach().cpu()
-                # condition = condition.detach().cpu() if condition is not None else None
-                # uncondition = uncondition.detach().cpu() if uncondition is not None else None
-                
-                # for j in range(latent.shape[0]):
-                #     targets.append(img[j])
-                #     latents.append(latent[j])
-                #     conditions.append(condition[j] if condition is not None else None)
-                #     unconditions.append(uncondition[j] if uncondition is not None else None)
+            # latent = latent.reshape(-1, self.channels, self.resolution, self.resolution).detach().cpu()
+            # img = img.detach().cpu()
+            # condition = condition.detach().cpu() if condition is not None else None
+            # uncondition = uncondition.detach().cpu() if uncondition is not None else None
+            
+            # for j in range(latent.shape[0]):
+            #     targets.append(img[j])
+            #     latents.append(latent[j])
+            #     conditions.append(condition[j] if condition is not None else None)
+            #     unconditions.append(uncondition[j] if uncondition is not None else None)
             
         return no_change, False
         
@@ -602,18 +583,16 @@ class DiscretizeModelWrapper:
         return time_steps
 
     def model_lambda_fn(self, input1):
-        lambda1 = input1  # Shape: [batch_size, num_steps+1]
+        lambda1 = input1 + 1e-8  # Shape: [batch_size, num_steps+1]
         #add small number to each to avoid identical neighboours and renormalize
-        lambda1 += 1e-8
         lambda1 = lambda1 / lambda1.sum(dim=1, keepdim=True)
         # Cumulative sum along the time dimension (dim=1)
-
         lamb_md = torch.cumsum(lambda1, dim=1)  # Now keeps batch dimension
 
         # Normalize per sample in the batch
         min_vals = lamb_md.min(dim=1, keepdim=True).values
         max_vals = lamb_md.max(dim=1, keepdim=True).values
-        normed = (lamb_md - min_vals) / (max_vals - min_vals + 1e-8)  # Add epsilon to avoid division by zero
+        normed = (lamb_md - min_vals) / (max_vals - min_vals)  # Add epsilon to avoid division by zero
         
         # Scale to lambda range
         lamb_steps1 = normed * (self.lambda_max - self.lambda_min) + self.lambda_min
