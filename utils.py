@@ -78,6 +78,7 @@ def parse_arguments(args_list = None):
     model_group.add_argument("--steps", type=int, help="Number of sampling steps.")
     model_group.add_argument("--order", type=int, help="Order for sampling.")
     model_group.add_argument("--time_mode", type=str, help="Time model: time or lambda.")
+    model_group.add_argument("--mlp_dropout", type=float, help="Dropout rate for MLP.")
 
     training_group = parser.add_argument_group('Training Parameters')
     training_group.add_argument("--seed", type=int, help="seed")
@@ -235,7 +236,7 @@ def create_desc(args):
     desc = "LTT_"
     if args.log_suffix:
         desc += f"{args.log_suffix}"
-    desc += f"_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
+    desc += f"_batch{args.main_train_batch_size}_N{NFEs}-val{args.num_valid}-train{args.num_train}" #{method_full}{args.loss_type}
     desc += f"-r{args.training_rounds_v1}"
     return desc
 

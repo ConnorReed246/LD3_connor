@@ -11,7 +11,7 @@ from dataset import load_data_from_dir, LD3Dataset
 
 # Fully connected neural network with one hidden layer
 class LTT_model(nn.Module):
-    def __init__(self, steps: int = 10):
+    def __init__(self, steps: int = 10, mlp_dropout: float = 0.0):
         super().__init__()
 
         self.unet = SimpleUNet_Encoding(
@@ -20,7 +20,8 @@ class LTT_model(nn.Module):
         self.mlp = SimpleMLP(
             input_size=256 * 8 * 8,
             output_size=steps + 1,
-            hidden_size=100
+            hidden_size=100,
+            dropout=mlp_dropout
         )
     
     def forward(self, x):
@@ -78,7 +79,7 @@ class SimpleMLP(nn.Module):
             return x / x.abs().sum(dim=1, keepdim=True)
     
 
-    def __init__(self, input_size, output_size, hidden_size=100, dropout=0.5):
+    def __init__(self, input_size, output_size, hidden_size=100, dropout=0.0):
         super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.dropout1 = nn.Dropout(dropout)
@@ -90,9 +91,9 @@ class SimpleMLP(nn.Module):
     def forward(self, x):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
-        # x = self.dropout1(x)  # Add dropout
+        x = self.dropout1(x)  # Add dropout
         x = F.relu(self.fc2(x))
-        # x = self.dropout2(x)  # Add dropout
+        x = self.dropout2(x)  # Add dropout
         x = self.fc3(x)
         x = F.softplus(x)
         # x = torch.sigmoid(x) 
@@ -109,14 +110,14 @@ if __name__ == "__main__":
     # Dataset
     data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
     steps = 5
-    train_size = 450
+    train_size = 2000
     valid_size = 50
-    train_batch_size = 5
+    train_batch_size = 50
 
     latents, targets, conditions, unconditions, optimal_params = load_data_from_dir( # this is what we take from training, targets are original images and latents latent goal
         data_folder=data_dir, 
         limit=train_size+valid_size,
-        use_optimal_params=True,
+        use_optimal_params=False,
         steps=steps
     )
 
@@ -168,13 +169,15 @@ if __name__ == "__main__":
     valid_loss_list = []
     valid_loss_index = []
     # Forward pass
-    for i in range(50):
+    for i in range(5):
         print(f"\n epoch: {i}")
         for j, batch in enumerate(train_loader):
             img, latent, condition, uncondition, optimal_params = batch
 
             latent = latent.to(device)
-            optimal_params = optimal_params.to(device)
+            # optimal_params = optimal_params.to(device)
+            optimal_params = torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], device='cuda:0') 
+            optimal_params = torch.unsqueeze(optimal_params, 0).repeat(latent.size(0), 1)
 
             outputs = model(latent)
 
@@ -201,7 +204,11 @@ if __name__ == "__main__":
                 img, latent, condition, uncondition, optimal_params = batch
 
                 latent = latent.to(device)
-                optimal_params = optimal_params.to(device)
+                # optimal_params = optimal_params.to(device)
+
+                optimal_params = torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], device='cuda:0') 
+                optimal_params = torch.unsqueeze(optimal_params, 0).repeat(latent.size(0), 1)
+
                 outputs = model(latent)
                 loss = loss_fn(outputs, optimal_params)
 
@@ -222,10 +229,13 @@ if __name__ == "__main__":
 
     #log scale
     # plt.yscale('log')
-    plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_dropout_0.5.png")
+    # plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_dropout_0.5.png")
+    plt.savefig("PreTrained_LossCurve.png")
 
     #save model 
     save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/runs/RandomModels"
-    torch.save(model.state_dict(), f"{save_path}/model_lr{learning_rate}_batch{train_batch_size}_without_dropout.pth")
+
+    torch.save(model.state_dict(), f"{save_path}/PreTrained.pth")
+    # torch.save(model.state_dict(), f"{save_path}/model_lr{learning_rate}_batch{train_batch_size}_without_dropout.pth")
 
 

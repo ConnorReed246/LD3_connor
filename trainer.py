@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import torch 
 from torch.utils.data import DataLoader
-from torch.nn import functional as F, CrossEntropyLoss
+from torch.nn import functional as F, MSELoss
 import torchvision
 
 import lpips 
@@ -78,6 +78,7 @@ class ModelConfig:
     solver_extra_params: Optional[dict] = None
     snapshot_path: str = "logs"
     device: Optional[str] = None
+    mlp_dropout: float = 0.0
 
 class LD3Trainer:
     def __init__(
@@ -95,6 +96,7 @@ class LD3Trainer:
         self.resolution = model_config.resolution
         self.channels = model_config.channels
         self.time_mode = model_config.time_mode
+        self.mlp_dropout = model_config.mlp_dropout
 
         # Learning rate parameters
         self.lr_time_1 = training_config.lr_time_1
@@ -136,7 +138,9 @@ class LD3Trainer:
         self._set_device(model_config.device)
         self.params = self._initialize_params()
 
-        self.ltt_model = LTT_model(steps=self.steps)
+        self.ltt_model = LTT_model(steps=self.steps, mlp_dropout=self.mlp_dropout)
+        # state_dict = torch.load("/netpool/homes/connor/DiffusionModels/LD3_connor/runs/RandomModels/PreTrained.pth", weights_only=True)
+        # self.ltt_model.load_state_dict(state_dict) #TODO REMOVE?
         self.ltt_model = self.ltt_model.to(self.device)
 
         self.optimizer = torch.optim.Adam(self.ltt_model.parameters(), lr=training_config.lr_time_1) #TODO maybe add momentum an weight decay?    momentum=training_config.momentum_time_1,  weight_decay=training_config.weight_decay_time_1,
@@ -157,7 +161,7 @@ class LD3Trainer:
         # Initialize loss function
         self.loss_type = training_config.loss_type #LPIPS -> differnece in two images 
         self.loss_fn = self._initialize_loss_fn()
-        self.loss_fn_optimal_params = CrossEntropyLoss()
+        self.loss_fn_optimal_params = MSELoss()
         self.loss_vector = None
 
 

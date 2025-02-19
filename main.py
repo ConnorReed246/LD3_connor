@@ -145,6 +145,7 @@ def main(args):
         solver_extra_params=solver_extra_params,
         snapshot_path=log_dir,
         device=device,
+        mlp_dropout=args.mlp_dropout,
     )
     trainer = LD3Trainer(model_config, training_config)
         
