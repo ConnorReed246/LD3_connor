@@ -13,6 +13,7 @@ from utils import (
     move_tensor_to_device
 )
 from models import prepare_stuff
+import matplotlib.pyplot as plt
 
 
 def gen_optimal_timesteps(args):
@@ -76,9 +77,7 @@ def gen_optimal_timesteps(args):
         )
 
 
-    # loss_matrix = torch.zeros(len(targets), args.training_rounds_v1)
-    # grad_matrix = torch.zeros(len(targets), args.training_rounds_v1, args.steps + 1)
-
+    loss_matrix = torch.zeros(args.num_train + args.num_valid, args.training_rounds_v1)
     for i, (img, latent) in enumerate(zip(targets, latents)):
         
         loss_list = torch.zeros(args.n_trials)
@@ -98,12 +97,12 @@ def gen_optimal_timesteps(args):
 
             for j in range(args.training_rounds_v1):
                 params_softmax = F.softmax(params, dim=0)
-                timestep = dis_model.convert(params_softmax)
+                timestep = dis_model.convert(params_softmax.unsqueeze(0))
                 x_next = trainer.noise_schedule.prior_transformation(latent)
                 x_next = trainer.solver.sample_simple(
                     model_fn=trainer.net,
                     x=x_next,
-                    timesteps=timestep,
+                    timesteps=timestep[0],
                     order=trainer.order,
                     NFEs=trainer.steps,
                     **trainer.solver_extra_params,
@@ -116,7 +115,7 @@ def gen_optimal_timesteps(args):
                 torch.nn.utils.clip_grad_norm_(params, 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
-                # loss_matrix[i, j] = loss.item()
+                loss_matrix[i, j] = loss.item()
             loss_list[r] = loss
             params_softmax_list[r] = params_softmax
 
@@ -126,7 +125,7 @@ def gen_optimal_timesteps(args):
         print("img: ", i)
         print("loss_list: ", loss_list)
         print("params_softmax_list: \n", params_softmax_list)
-        torch.save((params_softmax_list, loss_list), os.path.join(args.data_dir, f'optimal_params_{i:06d}_N{args.n_trials}_steps{args.steps}.pth'))
+        torch.save((params_softmax_list, loss_list), os.path.join(args.data_dir, f'OptimalTimesteps/optimal_params_{i:06d}_N{args.n_trials}_steps{args.steps}.pth'))
         print("-------------------------------")
 
 
@@ -135,6 +134,15 @@ def gen_optimal_timesteps(args):
     # torch.save(loss_matrix, os.path.join(args.data_dir, f"loss_matrix.pt"))
     # torch.save(grad_matrix, os.path.join(args.data_dir, f"loss_grad_matrix.pt"))
     print("Time taken: ", time.time() - start_time)
+
+    plt.figure(figsize=(10, 6))
+    for i in range(loss_matrix.size(0)):
+        plt.plot(loss_matrix[i].cpu().numpy(), label=f'Image {i}')
+    plt.legend()
+    plt.title('LPIPS loss per image')
+    plt.xlabel('Iteration')
+    plt.ylabel('LPIPS Loss')
+    plt.savefig(os.path.join(args.data_dir, 'OptimalTimesteps/loss_matrix.png'))
 
 
 if __name__ == "__main__":

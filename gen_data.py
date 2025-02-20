@@ -7,6 +7,7 @@ from utils import (
     set_seed_everything,
     prepare_paths,
     adjust_hyper,
+    save_rng_state,
 )
 from models import prepare_stuff, prepare_condition_loader
 import time
@@ -124,12 +125,25 @@ def main(args):
     inverse_scalar = get_data_inverse_scaler(centered=True)
 
     start = time.time()
-    count = 0
-    batch_size = args.sampling_batch_size
+    batch_size = args.sampling_batch_size 
     if args.prompt_path is not None and args.prompt_path.startswith('hpsv2'):
         args.total_samples = len(condition_loader.prompts)
 
-    for i in tqdm(range(args.total_samples // batch_size)):
+    # for i in tqdm(range(args.total_samples // batch_size)):
+    
+ 
+    rng_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0/rng_states"
+    rng_files = [f for f in os.listdir(rng_path) if f.startswith("rng_state_") and f.endswith(".pth")]
+    if rng_files:
+        latest_rng_file = max(rng_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+        count = int(latest_rng_file.split('_')[-1].split('.')[0])
+        latest_rng_file_path = os.path.join(rng_path, latest_rng_file)
+        print(f"Loading RNG state from {latest_rng_file_path}")
+    else:
+        print("No RNG state files found, starting from scratch.")
+        count = 0
+
+    while True:
         sampling_shape = (batch_size, latent_channel, latent_resolution, latent_resolution)
         latents = torch.randn(sampling_shape, device=device)
 
@@ -172,6 +186,13 @@ def main(args):
                     PIL.Image.fromarray(image_np, "RGB").save(image_path)
 
         count += batch_size
+
+        if count % (100*batch_size) == 0:
+            save_rng_state(os.path.join(rng_path, f"rng_state_{count:06d}"))
+            print(f"Saved RNG state at count {count}")
+        
+        if count >= args.total_samples:
+            break
 
     end = time.time()
     print(f"Generation time: {end - start}")

@@ -57,14 +57,38 @@ def parse_prior_timesteps(args):
     if args.use_gits and args.solver_name in PRIOR_TIMESTEPS and args.steps in PRIOR_TIMESTEPS[args.solver_name]:
         args.gits_ts = PRIOR_TIMESTEPS[args.solver_name][args.steps]
 
-def set_seed_everything(seed): 
-    random.seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
+def set_seed_everything(seed, rng_state=None): 
+    if rng_state is not None:
+        random.setstate(rng_state["python"])
+        torch.set_rng_state(rng_state["torch"])
+        if rng_state["torch_cuda"] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state(rng_state["torch_cuda"])
+        np.random.set_state(rng_state["numpy"])
+
+        # Optional: Reapply deterministic settings (not strictly necessary if already set)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False    
+    
+    else:            
+        random.seed(seed)
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = False    
+
+def save_rng_state(rng_path: str):
+    rng_state = {
+        "python": random.getstate(),
+        "torch": torch.get_rng_state(),
+        "torch_cuda": torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+        "numpy": np.random.get_state(),
+    }
+
+    # Save to file
+    torch.save(rng_state, f"{rng_path}.pth")
 
 def parse_arguments(args_list = None):
     parser = argparse.ArgumentParser(description="Description of your program")
