@@ -85,8 +85,21 @@ class Generator:
         else:
             return self._sample(net, decoding_fn, latents, condition, unconditional_condition)
 
+
+class LatentGenerator:
+    def __init__(self, train: bool = True):
+        self.generator = torch.Generator(torch.device("cpu")) # Independent RNG validation seed: "validation"-
+        self.idx_transformation = lambda x : x + 1 if train else - (x + 1) #depending on if we are in a train or validation set to range [1, max] or [-max, 1]
+
+    def generate_latent(self, idx, shape=(3, 32, 32)):
+        self.generator = self.generator.manual_seed(self.idx_transformation(idx))
+        return torch.randn(shape, device=torch.device("cpu"), generator=self.generator) 
+
+
 def main(args):
 
+    train_or_validation = args.train_or_validation
+    train_flag = True if train_or_validation == "train" else False
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     wrapped_model, model, decoding_fn, noise_schedule, latent_resolution, latent_channel, img_resolution, img_channel = prepare_stuff(args)
     condition_loader = prepare_condition_loader(model_type=args.model, 
@@ -98,8 +111,14 @@ def main(args):
                                                 )
     adjust_hyper(args, latent_resolution)
     desc, _, skip_type = prepare_paths(args)
-    data_dir = os.path.join(args.data_dir, desc)
-    os.makedirs(data_dir, exist_ok=True)
+
+
+    dir = os.path.join(args.data_dir, desc, train_or_validation)
+    os.makedirs(dir, exist_ok=True)
+    rng_path = os.path.join(dir, "rng_states")
+    os.makedirs(rng_path, exist_ok=True)
+    img_path = os.path.join(dir, "img")
+    os.makedirs(img_path, exist_ok=True)
 
     solver, steps, solver_extra_params = get_solvers(
         args.solver_name,
@@ -131,21 +150,27 @@ def main(args):
 
     # for i in tqdm(range(args.total_samples // batch_size)):
     
- 
-    rng_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0/rng_states"
-    rng_files = [f for f in os.listdir(rng_path) if f.startswith("rng_state_") and f.endswith(".pth")]
+    
+    latent_generator = LatentGenerator(train=train_flag)
+
+
+    rng_files = [f for f in os.listdir(rng_path) if f.startswith("rng_state_") and f.endswith(".pt")]
     if rng_files:
         latest_rng_file = max(rng_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
         count = int(latest_rng_file.split('_')[-1].split('.')[0])
         latest_rng_file_path = os.path.join(rng_path, latest_rng_file)
-        print(f"Loading RNG state from {latest_rng_file_path}")
+        print(f"Loaded RNG state from {latest_rng_file_path}")
     else:
         print("No RNG state files found, starting from scratch.")
         count = 0
 
     while True:
-        sampling_shape = (batch_size, latent_channel, latent_resolution, latent_resolution)
-        latents = torch.randn(sampling_shape, device=device)
+        if count >= args.total_samples:
+            break
+
+        sampling_shape = (latent_channel, latent_resolution, latent_resolution)
+        latents = torch.stack([latent_generator.generate_latent(idx = i, shape=sampling_shape) for i in range(count, count+batch_size)], dim=0)
+        latents = latents.to(device)
 
         if condition_loader is not None:
             conditioning, conditioned_unconditioning = next(condition_loader)
@@ -158,15 +183,6 @@ def main(args):
         img_teacher = img_teacher.detach().cpu().view(batch_size, img_channel, img_resolution, img_resolution)
         latents = latents.detach().cpu()
 
-        if args.save_pt:
-            for i in range(batch_size): 
-                latent = latents[i]
-                img = img_teacher[i]
-                c = conditioning[i] if conditioning is not None else None
-                uc = conditioned_unconditioning[i] if conditioned_unconditioning is not None else None
-                data = dict(latent=latent, img=img, c=c, uc=uc)
-                torch.save(data, os.path.join(data_dir, f"latent_{(count + i):06d}.pt")) 
-
         if args.save_png:#TODO this is how we save the images
             samples_raw = inverse_scalar(img_teacher)
             samples = np.clip(  #10 because of batch size
@@ -176,23 +192,14 @@ def main(args):
 
             for i in range(batch_size):
                 image_np = images_np[i]
-                if args.prompt_path is not None and args.prompt_path.startswith('hpsv2'):
-                    image_path = os.path.join(data_dir, f"{(count + i):05d}.jpg")
-                else:
-                    image_path = os.path.join(data_dir, f"{(count + i):06d}.png")
-                if image_np.shape[2] == 1:
-                    PIL.Image.fromarray(image_np[:, :, 0], "L").save(image_path)
-                else:
-                    PIL.Image.fromarray(image_np, "RGB").save(image_path)
+                PIL.Image.fromarray(image_np, "RGB").save(os.path.join(img_path, f"{(count + i):06d}.png"))
 
         count += batch_size
 
         if count % (100*batch_size) == 0:
             save_rng_state(os.path.join(rng_path, f"rng_state_{count:06d}"))
-            print(f"Saved RNG state at count {count}")
+            print(f"Saved RNG states at count {count}")
         
-        if count >= args.total_samples:
-            break
 
     end = time.time()
     print(f"Generation time: {end - start}")

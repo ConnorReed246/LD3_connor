@@ -2,6 +2,9 @@ from typing import List, Optional, Tuple
 import os
 import torch
 from torch.utils.data import Dataset
+from PIL import Image
+import torchvision.transforms as transforms
+from gen_data import LatentGenerator
 
 
 def load_data_from_dir(
@@ -49,3 +52,31 @@ class LD3Dataset(Dataset):
         uncondition = self.uncondition[idx]
         optimal_params = self.optimal_params[idx]
         return img, latent, condition, uncondition, optimal_params
+    
+
+
+
+class LTTDataset(Dataset):
+    def __init__(self, image_dir):
+        self.image_dir = image_dir
+        self.image_files = [f for f in os.listdir(image_dir) if f.endswith('.png')] #check if these are sorted
+        #sort these files by number
+        self.image_files.sort(key=lambda x: int(x.split('.')[0].split('_')[-1]))
+
+        self.transform = transforms.ToTensor()
+        train_flag = True if "train" in image_dir else False
+        self.latent_generator = LatentGenerator(train=train_flag)
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.image_dir, self.image_files[idx])
+        image = Image.open(img_name)
+        image = self.transform(image)
+        return image, self.latent_generator.generate_latent(idx = idx)
+    
+
+
+
+ 
