@@ -23,12 +23,13 @@ def gen_optimal_timesteps(args):
     set_seed_everything(args.seed)
 
     train_or_validation = args.train_or_validation
+    train_bool = True if train_or_validation == "train" else False
     dir = os.path.join(args.data_dir, train_or_validation)
-    dataset = LTTDataset(os.path.join(dir, "img"))
+    dataset = LTTDataset(os.path.join(dir), train_flag= train_bool, size=500000)
 
-    rng_path = os.path.join(dir, "opt_t_rng_states")
+    rng_path = os.path.join(dir, "opt_t_rng_states") #_clever_initialisation
     os.makedirs(rng_path, exist_ok=True)
-    opt_t_path = os.path.join(dir, "opt_t")
+    opt_t_path = os.path.join(dir, "opt_t") #_clever_initialisation
     os.makedirs(opt_t_path, exist_ok=True)
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -104,8 +105,9 @@ def gen_optimal_timesteps(args):
         
         loss_list = torch.zeros(args.n_trials)
         params_softmax_list = torch.zeros(args.n_trials, args.steps + 1)
+        
         try: 
-            img, latent = dataset[count]
+            img, latent, _ = dataset[count]
         except IndexError:
             print(f"Reached end of generated images at count {count}")
             break
@@ -113,8 +115,10 @@ def gen_optimal_timesteps(args):
         img, latent = move_tensor_to_device(img, latent, device=device)
         for r in range(args.n_trials):
             params = torch.nn.Parameter(torch.ones(args.steps + 1, dtype=torch.float32).cuda(), requires_grad=True)
+            # params = torch.nn.Parameter(torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], dtype=torch.float32).cuda(), requires_grad=True)
+
             if r > 0:
-                params.data += torch.rand(params.size()).cuda() - 0.5
+                params.data += (torch.rand(params.size()).cuda() - 0.5) #* 0.1
             
             optimizer = torch.optim.RMSprop(
                 [params], 

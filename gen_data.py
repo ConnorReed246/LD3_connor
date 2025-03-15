@@ -193,6 +193,8 @@ def main(args):
             for i in range(batch_size):
                 image_np = images_np[i]
                 PIL.Image.fromarray(image_np, "RGB").save(os.path.join(img_path, f"{(count + i):06d}.png"))
+                torch.save(img_teacher[i].clone(), os.path.join(img_path, f"img_{(count + i):06d}.pt"))
+            
 
         count += batch_size
 

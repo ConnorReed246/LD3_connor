@@ -19,6 +19,10 @@ from dataset import LD3Dataset
 from latent_to_timestep_model import LTT_model
 from utils import move_tensor_to_device, compute_distance_between_two, compute_distance_between_two_L1, visual, Tensorboard_Logger,tensor_to_image
 
+from torch.utils.data import DataLoader
+
+
+
 def save_gif(snapshot_path: str):
     care_files = [f for f in os.listdir(snapshot_path) if "log_best" in f]
     care_files = sorted(care_files, key=lambda f: int(f.split("_")[-1].replace(".png", "")))
@@ -218,11 +222,11 @@ class LD3Trainer:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def _create_valid_loaders(self):
-        self.valid_loader = DataLoader(self.valid_data, batch_size=self.train_batch_size, shuffle=False, collate_fn=custom_collate_fn)
-        self.valid_only_loader = DataLoader(self.valid_data, batch_size=self.valid_batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        # self.valid_loader = DataLoader(self.valid_data, batch_size=self.train_batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        self.valid_only_loader = DataLoader(self.valid_data, batch_size=self.valid_batch_size, shuffle=False, collate_fn=custom_collate_fn, num_workers=2)
 
     def _create_train_loader(self):
-        self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn)
+        self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn, num_workers=16)
     
     def _solve_ode(self, img=None, latent=None, optimal_param = None, condition=None, uncondition=None, valid=False, use_optimal_params: bool = False): #TODO remove timestep
         batch_size = latent.shape[0]
@@ -306,10 +310,10 @@ class LD3Trainer:
         outputs = list()
         targets = list()
         with torch.no_grad():
-            for img, latent, condition, uncondition, optimal_param in self.valid_only_loader:
+            for img, latent, optimal_param in self.valid_only_loader:
                 img = img.to(self.device)
                 latent = latent.to(self.device).reshape(latent.shape[0], -1)
-                loss, output, target = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=True, use_optimal_params=self.use_optimal_params) #TODO here we outpus output and target and anaylse the differnce?
+                loss, output, target = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=None, uncondition=None, valid=True, use_optimal_params=self.use_optimal_params) #TODO here we outpus output and target and anaylse the differnce?
 
                 total_loss += loss.item()
                 count += 1
@@ -352,8 +356,8 @@ class LD3Trainer:
 
         torch.save(self.ltt_model.state_dict(), self.snapshot_path + "/ltt_model.pt")
         # save dataloader, valid_loader, valid_only_loader
-        pickle.dump(self.train_data, open(os.path.join(self.snapshot_path, "train_data.pkl"), "wb"))
-        pickle.dump(self.valid_data, open(os.path.join(self.snapshot_path, "valid_data.pkl"), "wb"))
+        # pickle.dump(self.train_data, open(os.path.join(self.snapshot_path, "train_data.pkl"), "wb"))
+        # pickle.dump(self.valid_data, open(os.path.join(self.snapshot_path, "valid_data.pkl"), "wb"))
 
         # model must be created again with parameters
     
@@ -362,11 +366,11 @@ class LD3Trainer:
     def _load_checkpoint(self, reload_data:bool):
         state_dict = torch.load(self.snapshot_path + "/ltt_model.pt", weights_only=True)
         self.ltt_model.load_state_dict(state_dict)  # Load the model state
-        if reload_data:
-            self.train_data = pickle.load(open(os.path.join(self.snapshot_path, "train_data.pkl"), "rb"))
-            self.valid_data = pickle.load(open(os.path.join(self.snapshot_path, "valid_data.pkl"), "rb"))
-            self._create_train_loader()
-            self._create_valid_loaders()
+        # if reload_data:
+        #     self.train_data = pickle.load(open(os.path.join(self.snapshot_path, "train_data.pkl"), "rb"))
+        #     self.valid_data = pickle.load(open(os.path.join(self.snapshot_path, "valid_data.pkl"), "rb"))
+        #     self._create_train_loader()
+        #     self._create_valid_loaders()
 
     def _examine_checkpoint(self, iter: int) -> None:
         logging.info(f"{self._current_version} Saving snapshot at iter {iter}")
@@ -490,9 +494,9 @@ class LD3Trainer:
         self._examine_checkpoint(self.cur_iter) # run validation on current latent and time steps
 
 
-        for img, latent, condition, uncondition, optimal_param in self.train_loader: #1 at a time in validation
+        for img, latent, optimal_param in self.train_loader: #1 at a time in validation
 
-            img, latent, condition, uncondition, optimal_param = move_tensor_to_device(img, latent, condition, uncondition, optimal_param, device=self.device)
+            img, latent, optimal_param = move_tensor_to_device(img, latent, optimal_param, device=self.device)
             
             # Flattent latents
             batch_size = latent.shape[0]
@@ -503,7 +507,7 @@ class LD3Trainer:
             ########################################################################
 
             latent = latent.reshape(batch_size, -1) # torch.Size([1, 3072])
-            loss, _, _ = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=condition, uncondition=uncondition, valid=False, use_optimal_params = self.use_optimal_params)
+            loss, _, _ = self._solve_ode(img=img, latent=latent, optimal_param=optimal_param, condition=None, uncondition=None, valid=False, use_optimal_params = self.use_optimal_params)
             torch.nn.utils.clip_grad_norm_(self.ltt_model.parameters(), 1.0)
             loss.backward()
             logging.info(f"{self._current_version} Iter {self.cur_iter} Train Loss: {loss.item()}")
@@ -577,6 +581,7 @@ class DiscretizeModelWrapper:
         time1 = input1
         t_max, t_min = self.noise_schedule.inverse_lambda(self.lambda_min).to(time1.device), self.noise_schedule.inverse_lambda(self.lambda_max).to(time1.device)
         time_plus = torch.nn.functional.softmax(time1, dim=0)
+        print("THIS IS STILL FUCKED; DONT USE IT")
         exit() #TODO WE NEED TO ADAPT THIS BEFORE USING IT
         time_md = torch.cumsum(time1, dim=0).flip(0)
         normed = (time_md - time_md[-1]) / (time_md[0] - time_md[-1])
@@ -587,7 +592,7 @@ class DiscretizeModelWrapper:
         return time_steps
 
     def model_lambda_fn(self, input1):
-        lambda1 = input1 + 1e-8  # Shape: [batch_size, num_steps+1]
+        lambda1 = input1 + 1e-7  # Shape: [batch_size, num_steps+1]
         #add small number to each to avoid identical neighboours and renormalize
         lambda1 = lambda1 / lambda1.sum(dim=1, keepdim=True)
         # Cumulative sum along the time dimension (dim=1)

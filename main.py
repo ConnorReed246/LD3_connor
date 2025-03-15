@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-from dataset import load_data_from_dir, LD3Dataset
+from dataset import load_data_from_dir, LD3Dataset, LTTDataset
 from trainer import LD3Trainer, ModelConfig, TrainingConfig
 from utils import (
     create_desc,
@@ -86,27 +86,8 @@ def main(args):
         noise_schedule=noise_schedule,
         unipc_variant=args.unipc_variant,
     )
-    latents, targets, conditions, unconditions, optimal_params = load_data_from_dir( #this is what we take from trainig, targets are original images and latens latent goal
-        data_folder=args.data_dir, limit=args.num_train + args.num_valid, use_optimal_params=args.use_optimal_params, steps=args.steps
-    )
-
-    valid_dataset = LD3Dataset(
-        latents[: args.num_valid],
-        targets[: args.num_valid],
-        conditions[: args.num_valid],
-        unconditions[: args.num_valid],
-        optimal_params[: args.num_valid],
-    )
-    if args.num_valid > 0 :
-        train_dataset = LD3Dataset(
-            latents[args.num_valid :],
-            targets[args.num_valid :],
-            conditions[args.num_valid :],
-            unconditions[args.num_valid :],
-            optimal_params[args.num_valid :],
-        )
-    else:
-        valid_dataset = train_dataset
+    valid_dataset = LTTDataset(dir=os.path.join(args.data_dir, "validation"), size=args.num_valid, train_flag=False)
+    train_dataset = LTTDataset(dir=os.path.join(args.data_dir, "train"), size=args.num_train, train_flag=True)
 
     training_config = TrainingConfig(
         train_data=train_dataset,

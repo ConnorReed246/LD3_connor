@@ -1,0 +1,248 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter  # Add this import
+import lpips
+from trainer import LD3Trainer, ModelConfig, TrainingConfig, DiscretizeModelWrapper
+from utils import get_solvers, move_tensor_to_device, parse_arguments, set_seed_everything
+
+from dataset import load_data_from_dir, LTTDataset
+from latent_to_timestep_model import LTT_model
+from models import prepare_stuff
+
+args = parse_arguments()
+set_seed_everything(args.seed)
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Dataset
+data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
+steps = 5
+optimal_params_path = args.data_dir #opt_t_clever_initialisation
+
+# Initialize TensorBoard writer
+learning_rate = args.lr_time_1
+run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_{args.log_suffix}"
+log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_optimal_timesteps/{run_name}"
+writer = SummaryWriter(log_dir)
+
+lpips_loss_fn = lpips.LPIPS(net='vgg').to(device)
+
+# Initialize diffusion model components
+
+wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
+solver, steps, solver_extra_params = get_solvers(
+    args.solver_name,
+    NFEs=args.steps,
+    order=args.order,
+    noise_schedule=noise_schedule,
+    unipc_variant=args.unipc_variant,
+)
+
+order = args.order  
+
+
+def custom_collate_fn(batch):
+    collated_batch = []
+    for samples in zip(*batch):
+        if any(item is None for item in samples):
+            collated_batch.append(None)
+        else:
+            collated_batch.append(torch.utils.data._utils.collate.default_collate(samples))
+    return collated_batch
+
+valid_dataset = LTTDataset(dir=os.path.join(data_dir, "validation"), size=args.num_valid, train_flag=False, use_optimal_params=True,optimal_params_path=optimal_params_path) 
+train_dataset = LTTDataset(dir=os.path.join(data_dir, "train"), size=args.num_train, train_flag=True, use_optimal_params=True, optimal_params_path=optimal_params_path)
+
+# train_loader = DataLoader(
+#     dataset=train_dataset,
+#     collate_fn=custom_collate_fn,
+#     batch_size=train_batch_size,  # Adjust batch size as needed
+#     shuffle=True,
+# )
+
+# valid_loader = DataLoader(
+#     dataset=valid_dataset,
+#     collate_fn=custom_collate_fn,
+#     batch_size=50,  # Adjust batch size as needed
+#     shuffle=False,
+# )
+
+model = LTT_model(steps = steps)
+loss_fn = nn.MSELoss()#CrossEntropyLoss()
+model = model.to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+
+
+wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
+solver, steps, solver_extra_params = get_solvers(
+    args.solver_name,
+    NFEs=args.steps,
+    order=args.order,
+    noise_schedule=noise_schedule,
+    unipc_variant=args.unipc_variant,
+)
+
+training_config = TrainingConfig(
+    train_data=train_dataset,
+    valid_data=valid_dataset,
+    train_batch_size=args.main_train_batch_size,
+    valid_batch_size=args.main_valid_batch_size,
+    lr_time_1=args.lr_time_1,
+    shift_lr=args.shift_lr,
+    shift_lr_decay=args.shift_lr_decay,
+    min_lr_time_1=args.min_lr_time_1,
+    win_rate=args.win_rate,
+    patient=args.patient,
+    lr_time_decay=args.lr_time_decay,
+    momentum_time_1=args.momentum_time_1,
+    weight_decay_time_1=args.weight_decay_time_1,
+    loss_type=args.loss_type,
+    visualize=args.visualize,
+    no_v1=args.no_v1,
+    prior_timesteps=args.gits_ts,
+    match_prior=args.match_prior,
+)
+model_config = ModelConfig(
+    net=wrapped_model,
+    decoding_fn=decoding_fn,
+    noise_schedule=noise_schedule,
+    solver=solver,
+    solver_name=args.solver_name,
+    order=args.order,
+    steps=steps,
+    prior_bound=args.prior_bound,
+    resolution=latent_resolution,
+    channels=latent_channel,
+    time_mode=args.time_mode,
+    solver_extra_params=solver_extra_params,
+    device=device,
+)
+trainer = LD3Trainer(model_config, training_config)
+
+
+dis_model = DiscretizeModelWrapper( #Changed through LTT
+        lambda_max=trainer.lambda_max,
+        lambda_min=trainer.lambda_min,
+        noise_schedule=trainer.noise_schedule,
+        time_mode = trainer.time_mode,
+    )
+
+def calculate_lpips_loss(model, latent, img, device):
+    model.eval()
+    with torch.no_grad():
+        outputs = model(latent)
+        timesteps_list = dis_model.convert(outputs)
+        x_next_list = noise_schedule.prior_transformation(latent)
+        x_next_computed = []
+        for timestep, x_next in zip(timesteps_list, x_next_list):
+            x_next = solver.sample_simple(
+                model_fn=wrapped_model,
+                x=x_next.unsqueeze(0),
+                timesteps=timestep,
+                order=order,
+                NFEs=steps,
+                condition=None,
+                unconditional_condition=None,
+                **solver_extra_params,
+            )
+            x_next_computed.append(x_next)
+        x_next_computed = decoding_fn(torch.cat(x_next_computed, dim=0))
+        lpips_loss = lpips_loss_fn(img.float(), x_next_computed.float()).mean().item()
+    model.train()
+    return lpips_loss
+
+# print(model)
+loss_list = []
+valid_loss_list = []
+valid_loss_index = []
+# Forward pass
+for i in range(args.training_rounds_v1):
+    print(f"\n epoch: {i}")
+    for j, batch in enumerate(trainer.train_loader):
+        img, latent, optimal_params = batch
+
+        latent = latent.to(device)
+        optimal_params = optimal_params.to(device)
+        # optimal_params = torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], device='cuda:0') 
+        # optimal_params = torch.unsqueeze(optimal_params, 0).repeat(latent.size(0), 1)
+
+        outputs = model(latent)
+
+        # print(f"outputs: {outputs}")
+        # print(f"optimal_params: {optimal_params}")
+        
+        loss = loss_fn(outputs, optimal_params)
+        # print(f"loss: {loss}")
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        optimizer.step()
+
+        # Log training loss
+        writer.add_scalar('Loss/train', loss.item(), i * len(trainer.train_loader) + j)
+
+        if j % 10 == 0:
+
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"Layer: {name} | Grad Norm: {param.grad.norm().item()}")
+            for batch in trainer.valid_only_loader:
+                with torch.no_grad():
+                    img, latent, optimal_params = batch
+
+                    latent = latent.to(device)
+                    optimal_params = optimal_params.to(device)
+                    img = img.to(device)
+                    #optimal_params = torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], device='cuda:0') 
+                    #optimal_params = torch.unsqueeze(optimal_params, 0).repeat(latent.size(0), 1)
+
+                    outputs = model(latent)
+                    loss = loss_fn(outputs, optimal_params)
+
+                    # Log validation loss
+                    writer.add_scalar('Loss/valid', loss.item(), i * len(trainer.train_loader) + j)
+                    print(f"Iteration {i * len(trainer.train_loader) + j}, Validation loss: {loss.item()}")
+
+
+
+                    #every 500 iterations, calculate lpips loss
+                    if j % 50 == 0:
+                        lpips_loss = calculate_lpips_loss(model, latent, img, device)
+                        writer.add_scalar('Loss/LPIPS', lpips_loss, i * len(trainer.train_loader) + j)
+                        print(f"Iteration {i * len(trainer.train_loader) + j}, LPIPS loss: {lpips_loss}")
+
+        optimizer.zero_grad()
+
+        #loss_list.append(min(loss.item(),0.1))
+
+
+
+
+
+# plt.plot(loss_list, label = "loss")  # Plot the loss curve
+# window_size = 100
+# rolling_window = np.convolve(loss_list, np.ones(window_size)/window_size, mode='valid')
+# plt.plot(rolling_window, label='rolling window average')
+# plt.plot(valid_loss_index, valid_loss_list, label = "valid loss")
+
+# plt.legend()
+
+# #log scale
+# # plt.yscale('log')
+# # plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_dropout_0.5.png")
+# plt.savefig("PreTrained_LossCurve.png")
+
+# Close the TensorBoard writer
+writer.close()
+
+#save model 
+save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/runs/RandomModels"
+
+#torch.save(model.state_dict(), f"{save_path}/PreTrained.pth")
+torch.save(model.state_dict(), f"{log_dir}")
