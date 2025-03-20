@@ -65,6 +65,7 @@ class TrainingConfig:
     prior_timesteps: Optional[List[float]] = None
     match_prior: bool = False,
     use_optimal_params: bool = False
+    num_workers_loader: int = 1
     
 @dataclass
 class ModelConfig:
@@ -116,10 +117,12 @@ class LD3Trainer:
         self.valid_data = training_config.valid_data
         self.train_batch_size = training_config.train_batch_size
         self.valid_batch_size = training_config.valid_batch_size
+        self.num_workers_loader = training_config.num_workers_loader
         self._create_valid_loaders()
         self._create_train_loader()
         self.eval_on_one = False #Maybe change back, but probably better to leave it to keep loss consistent
         self.use_optimal_params = training_config.use_optimal_params
+
 
         # Training state
         self.cur_iter = 0
@@ -226,7 +229,7 @@ class LD3Trainer:
         self.valid_only_loader = DataLoader(self.valid_data, batch_size=self.valid_batch_size, shuffle=False, collate_fn=custom_collate_fn, num_workers=2)
 
     def _create_train_loader(self):
-        self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=True, collate_fn=custom_collate_fn, num_workers=16)
+        self.train_loader = DataLoader(self.train_data, batch_size=self.train_batch_size, shuffle=False, collate_fn=custom_collate_fn, num_workers=self.num_workers_loader)
     
     def _solve_ode(self, img=None, latent=None, optimal_param = None, condition=None, uncondition=None, valid=False, use_optimal_params: bool = False): #TODO remove timestep
         batch_size = latent.shape[0]
@@ -269,7 +272,8 @@ class LD3Trainer:
                     )
                     x_next_computed.append(x_next)#This was wrong the whole time?
 
-                x_next_computed = self.decoding_fn(torch.cat(x_next_computed, dim=0))                
+                # x_next_computed = self.decoding_fn(torch.cat(x_next_computed, dim=0))   #TODO change this to just torch.cat(x_next_computed) 
+                x_next_computed = torch.cat(x_next_computed, dim=0)          
                 self.loss_vector = self.loss_fn(img.float(), x_next_computed.float()).squeeze()
                 loss = self.loss_vector.mean()
                 logging.info(f"{self._current_version} Loss: {loss.item()}")

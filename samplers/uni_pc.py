@@ -196,4 +196,47 @@ class UniPC(ODESolver):
         if return_intermediates:
             return x_list #visual(torch.cat(x_list, dim=0))
         return x #this is the image
+    
+
+    def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
+        self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
+        total_steps = steps
+        t1 = torch.tensor(start_timestep, device=x.device)
+        t_prev_list = [t1] #TODO t1 and t_prev list must be different
+        model_prev_list = [self.model_fn(x, t1)]
+        x_list = [x]
+        for step in range(1, steps+1):
+            delta_timestep_ratio = delta_ltt(x, t1, torch.tensor(total_steps + 1 - step, device=x.device))
+
+            #shift to be between 0.0001 and 0.9999
+            delta_timestep_ratio = torch.clamp(delta_timestep_ratio, 0.0001, 0.9999)
+            
+            t1 = t1 * delta_timestep_ratio.squeeze()
+
+
+            if step < order:
+                x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True)
+            
+            
+            if step >= order:
+                if lower_order_final:
+                    step_order = min(order, steps + 1 - step)
+                else:
+                    step_order = order
+                if step == steps:
+                    use_corrector = False
+                else:
+                    use_corrector = True
+                x = self.one_step(t1, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector)
+            
+            # t_prev_list.append(t1)
+            # model_prev_list.append(x)
+            #NO NEED; happens automatically in one step
+            x_list.append(x)
+
+
+        return x, x_list
+
+
+
 

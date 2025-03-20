@@ -219,9 +219,9 @@ class ODESolver(ABC):
         Convert the model to the noise prediction model or the data prediction model. 
         """
         if self.predict_x0:
-            return self.data_prediction_fn(x, t)
+            return self.data_prediction_fn(x, t).float() #TODO: does this change anything?
         else:
-            return self.noise_prediction_fn(x, t)
+            return self.noise_prediction_fn(x, t).float()
 
     def get_time_steps(self, skip_type, t_T, t_0, N, device):
         """Compute the intermediate time steps for sampling.

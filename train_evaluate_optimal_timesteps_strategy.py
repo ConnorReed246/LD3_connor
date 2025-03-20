@@ -15,6 +15,8 @@ from utils import get_solvers, move_tensor_to_device, parse_arguments, set_seed_
 from dataset import load_data_from_dir, LTTDataset
 from latent_to_timestep_model import LTT_model
 from models import prepare_stuff
+import torch.optim.lr_scheduler as lr_scheduler
+
 
 args = parse_arguments()
 set_seed_everything(args.seed)
@@ -22,6 +24,7 @@ set_seed_everything(args.seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Dataset
 data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
+model_dir = "runs/RandomModels"
 steps = 5
 optimal_params_path = args.data_dir #opt_t_clever_initialisation
 
@@ -43,9 +46,7 @@ solver, steps, solver_extra_params = get_solvers(
     noise_schedule=noise_schedule,
     unipc_variant=args.unipc_variant,
 )
-
 order = args.order  
-
 
 def custom_collate_fn(batch):
     collated_batch = []
@@ -73,10 +74,12 @@ train_dataset = LTTDataset(dir=os.path.join(data_dir, "train"), size=args.num_tr
 #     shuffle=False,
 # )
 
-model = LTT_model(steps = steps)
+model = LTT_model(steps = steps, mlp_dropout=args.mlp_dropout)
 loss_fn = nn.MSELoss()#CrossEntropyLoss()
 model = model.to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)  # Decrease LR by a factor of 0.1 every 1 epochs
+
 
 
 wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
@@ -180,7 +183,7 @@ for i in range(args.training_rounds_v1):
         loss = loss_fn(outputs, optimal_params)
         # print(f"loss: {loss}")
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
 
         optimizer.step()
 
@@ -193,6 +196,7 @@ for i in range(args.training_rounds_v1):
             #     if param.grad is not None:
             #         print(f"Layer: {name} | Grad Norm: {param.grad.norm().item()}")
             for batch in trainer.valid_only_loader:
+                model.eval()
                 with torch.no_grad():
                     img, latent, optimal_params = batch
 
@@ -216,8 +220,10 @@ for i in range(args.training_rounds_v1):
                         lpips_loss = calculate_lpips_loss(model, latent, img, device)
                         writer.add_scalar('Loss/LPIPS', lpips_loss, i * len(trainer.train_loader) + j)
                         print(f"Iteration {i * len(trainer.train_loader) + j}, LPIPS loss: {lpips_loss}")
+                    model.train()
 
         optimizer.zero_grad()
+    scheduler.step()
 
         #loss_list.append(min(loss.item(),0.1))
 
@@ -241,8 +247,6 @@ for i in range(args.training_rounds_v1):
 # Close the TensorBoard writer
 writer.close()
 
-#save model 
-save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/runs/RandomModels"
 
 #torch.save(model.state_dict(), f"{save_path}/PreTrained.pth")
-torch.save(model.state_dict(), f"{log_dir}")
+torch.save(model.state_dict(), f"{model_dir}/{run_name}.pth")

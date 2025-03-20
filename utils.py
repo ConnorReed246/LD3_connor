@@ -134,6 +134,7 @@ def parse_arguments(args_list = None):
     training_group.add_argument("--scale", type=int, help="Guidance scale")
     training_group.add_argument("--match_prior", action="store_true", help="Whether to initial params by prior timesteps")
     training_group.add_argument("--use_optimal_params",type=str2bool, nargs='?', const=True, default=False, help="Prior timesteps as params")
+    training_group.add_argument("--num_workers_loader", type=int, default=1, help="Number of workers for data loader.")
 
     testing_group = parser.add_argument_group('Testing Parameters')
     testing_group.add_argument("--load_from_version", type=int, default=2, help="Load from whihc version, default=2")

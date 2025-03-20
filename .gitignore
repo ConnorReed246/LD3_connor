@@ -13,6 +13,7 @@ captions_val2014.json
 *zip
 logs/
 logs_backup/
+runs/default
 # runs/
 *pt 
 *pkl 

@@ -110,6 +110,7 @@ def main(args):
         prior_timesteps=args.gits_ts,
         match_prior=args.match_prior,
         use_optimal_params=args.use_optimal_params,
+        num_workers_loader=args.num_workers_loader,
     )
     model_config = ModelConfig(
         net=wrapped_model,
