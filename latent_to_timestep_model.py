@@ -139,14 +139,31 @@ class Delta_LTT_model(nn.Module):
 
     def forward(self, x, current_timestep, steps_left):
         out = self.unet(x)
-        out = torch.cat([out, current_timestep.unsqueeze(0).unsqueeze(0), steps_left.unsqueeze(0).unsqueeze(0)], dim=1)
+        out = torch.cat([out, current_timestep.expand((out.shape[0])).unsqueeze(1), steps_left.expand((out.shape[0])).unsqueeze(1)], dim=1)
         out = self.mlp(out)
         out = torch.sigmoid(out)
 
         return out
 
 
+class Delta_LTT_model_using_Bottleneck(nn.Module):
 
+    def __init__(self, steps: int = 10, mlp_dropout: float = 0.0):
+        super().__init__()
+        # Add processing for additional features
+        self.mlp = SimpleMLP(
+            input_size=256+1+1,
+            output_size=1,
+            hidden_size=512,
+            dropout=mlp_dropout
+        )
+
+    def forward(self, bottleneck, current_timestep, steps_left):
+        out = torch.cat([bottleneck, current_timestep.expand((bottleneck.shape[0])).unsqueeze(1), steps_left.expand((bottleneck.shape[0])).unsqueeze(1)], dim=1)
+        out = self.mlp(out)
+        out = torch.sigmoid(out)
+
+        return out
 
 if __name__ == "__main__":
 

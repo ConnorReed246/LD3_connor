@@ -30,7 +30,7 @@ class UniPC(ODESolver):
         self.predict_x0 = algorithm_type == "data_prediction" # true
 
 
-    def multistep_uni_pc_bh_update(self, x, model_prev_list, t_prev_list, t, order, x_t=None, use_corrector=True):
+    def multistep_uni_pc_bh_update(self, x, model_prev_list, t_prev_list, t, order, x_t=None, use_corrector=True, return_bottleneck=False):
         if len(t.shape) == 0:
             t = t.view(-1)
         # print(f'using unified predictor-corrector with order {order} (solver type: B(h))')
@@ -124,21 +124,38 @@ class UniPC(ODESolver):
             x_t = x_t_ - alpha_t * B_h * pred_res
 
         if use_corrector:
-            model_t = self.model_fn(x_t, t) #TODO here we get the size 1 from the model
+            if return_bottleneck:
+                model_t, bottleneck = self.model_fn(x_t, t, return_bottleneck=return_bottleneck) #TODO here we get the size 1 from the model
+            else:
+                model_t = self.model_fn(x_t, t, return_bottleneck=return_bottleneck)
             if D1s is not None:
                 corr_res = einsum_float_double('k,bkchw->bchw', rhos_c[:-1], D1s)
             else:
                 corr_res = 0
             D1_t = (model_t - model_prev_0)
             x_t = x_t_ - alpha_t * B_h * (corr_res + rhos_c[-1] * D1_t)
-        return x_t, model_t
+
+        if return_bottleneck:
+            if use_corrector:
+                return x_t, model_t, bottleneck
+            else:
+                return x_t, model_t, None
+        else:
+            return x_t, model_t
 
     
-    def one_step(self, t1, t_prev_list, model_prev_list, step, x_next, order, first=True, use_corrector=True):
-        x_next, model_x_next = self.multistep_uni_pc_bh_update(x_next, model_prev_list, t_prev_list, t1, step, use_corrector=use_corrector)
+    def one_step(self, t1, t_prev_list, model_prev_list, step, x_next, order, first=True, use_corrector=True, return_bottleneck=False):
+        if return_bottleneck:
+            x_next, model_x_next, bottleneck = self.multistep_uni_pc_bh_update(x_next, model_prev_list, t_prev_list, t1, step, use_corrector=use_corrector, return_bottleneck=return_bottleneck)
+        else:
+            x_next, model_x_next = self.multistep_uni_pc_bh_update(x_next, model_prev_list, t_prev_list, t1, step, use_corrector=use_corrector, return_bottleneck=return_bottleneck)
 
         self.update_lists(t_prev_list, model_prev_list, t1, model_x_next, order, first=first)
-        return x_next
+        
+        if return_bottleneck:
+            return x_next, bottleneck
+        else:
+            return x_next
 
 
     def update_lists(self, t_list, model_list, t_, model_x, order, first=False):
@@ -198,15 +215,26 @@ class UniPC(ODESolver):
         return x #this is the image
     
 
-    def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_intermediates=False, condition=None, unconditional_condition=None, **kwargs):
+    def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_bottleneck=False, condition=None, unconditional_condition=None, **kwargs):
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
         total_steps = steps
         t1 = torch.tensor(start_timestep, device=x.device)
         t_prev_list = [t1] #TODO t1 and t_prev list must be different
-        model_prev_list = [self.model_fn(x, t1)]
+        
+        if return_bottleneck:
+            x_prev, prev_bottleneck = self.model_fn(x, t1, return_bottleneck=return_bottleneck)
+        else:
+            x_prev = self.model_fn(x, t1)
+        model_prev_list = [x_prev]
+
         x_list = [x]
+        t_list = [t1.item()]
         for step in range(1, steps+1):
-            delta_timestep_ratio = delta_ltt(x, t1, torch.tensor(total_steps + 1 - step, device=x.device))
+
+            if return_bottleneck:
+                delta_timestep_ratio = delta_ltt(prev_bottleneck, t1, torch.tensor(total_steps + 1 - step, device=x.device))
+            else:
+                delta_timestep_ratio = delta_ltt(x, t1, torch.tensor(total_steps + 1 - step, device=x.device))
 
             #shift to be between 0.0001 and 0.9999
             delta_timestep_ratio = torch.clamp(delta_timestep_ratio, 0.0001, 0.9999)
@@ -215,8 +243,11 @@ class UniPC(ODESolver):
 
 
             if step < order:
-                x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, first=True)
-            
+                if return_bottleneck:
+                    x, prev_bottleneck = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, return_bottleneck=return_bottleneck, first=True)
+                else:
+                    x = self.one_step(t1, t_prev_list, model_prev_list, step, x, order, return_bottleneck=return_bottleneck, first=True)
+
             
             if step >= order:
                 if lower_order_final:
@@ -227,15 +258,19 @@ class UniPC(ODESolver):
                     use_corrector = False
                 else:
                     use_corrector = True
-                x = self.one_step(t1, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector)
+                if return_bottleneck:
+                    x, prev_bottleneck = self.one_step(t1, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector, return_bottleneck=return_bottleneck)
+                else:
+                    x = self.one_step(t1, t_prev_list, model_prev_list, step_order, x, order, first=False, use_corrector=use_corrector)
             
             # t_prev_list.append(t1)
             # model_prev_list.append(x)
             #NO NEED; happens automatically in one step
             x_list.append(x)
+            t_list.append(t1.item())
 
 
-        return x, x_list
+        return x, x_list, t_list
 
 
 

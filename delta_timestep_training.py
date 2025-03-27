@@ -13,7 +13,7 @@ from trainer import LD3Trainer, ModelConfig, TrainingConfig, DiscretizeModelWrap
 from utils import get_solvers, move_tensor_to_device, parse_arguments, set_seed_everything
 
 from dataset import load_data_from_dir, LTTDataset
-from latent_to_timestep_model import LTT_model, Delta_LTT_model
+from latent_to_timestep_model import  Delta_LTT_model, Delta_LTT_model_using_Bottleneck
 from models import prepare_stuff
 import torch.optim.lr_scheduler as lr_scheduler
 from utils import visual
@@ -28,12 +28,14 @@ data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
 model_dir = "runs/RandomModels"
 steps = 5
 optimal_params_path = args.data_dir #opt_t_clever_initialisation
+return_bottleneck = True
 
 # Initialize TensorBoard writer
 learning_rate = args.lr_time_1
 run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_nTrain{args.num_train}_{args.log_suffix}"
 log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_delta_timesteps/{run_name}"
 model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_delta_timesteps/models"
+model_path = os.path.join(model_dir, run_name)
 writer = SummaryWriter(log_dir)
 process_img_dir = os.path.join("/netpool/homes/connor/DiffusionModels/LD3_connor/runs_delta_timesteps/process_images/", run_name)
 os.makedirs(process_img_dir, exist_ok=True)
@@ -41,17 +43,6 @@ os.makedirs(model_dir, exist_ok=True)
 
 lpips_loss_fn = lpips.LPIPS(net='vgg').to(device)
 
-# Initialize diffusion model components
-
-wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
-solver, steps, solver_extra_params = get_solvers(
-    args.solver_name,
-    NFEs=args.steps,
-    order=args.order,
-    noise_schedule=noise_schedule,
-    unipc_variant=args.unipc_variant,
-)
-order = args.order  
 
 def custom_collate_fn(batch):
     collated_batch = []
@@ -65,14 +56,17 @@ def custom_collate_fn(batch):
 valid_dataset = LTTDataset(dir=os.path.join(data_dir, "validation"), size=args.num_valid, train_flag=False, use_optimal_params=False,optimal_params_path=optimal_params_path) 
 train_dataset = LTTDataset(dir=os.path.join(data_dir, "train"), size=args.num_train, train_flag=True, use_optimal_params=False, optimal_params_path=optimal_params_path)
 
-delta_ltt_model = Delta_LTT_model(steps = steps, mlp_dropout=args.mlp_dropout)
+if return_bottleneck:
+    delta_ltt_model = Delta_LTT_model_using_Bottleneck(steps = steps, mlp_dropout=args.mlp_dropout)
+else:
+    delta_ltt_model = Delta_LTT_model(steps = steps, mlp_dropout=args.mlp_dropout)
 delta_ltt_model = delta_ltt_model.to(device)
 optimizer = torch.optim.AdamW(delta_ltt_model.parameters(), lr=learning_rate, weight_decay=1e-4)
-scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)  # Decrease LR by a factor of 0.1 every 1 epochs
+step_size = args.training_rounds_v1 * len(train_dataset) // args.main_train_batch_size // 100 #we decrease 100 times which roughly equals a decrease of 99% of learning rate in the end
+scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.95)  # Decrease LR by a factor of 0.1 every 1 epochs
 
 
-
-wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
+wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args, return_bottleneck=return_bottleneck)
 solver, steps, solver_extra_params = get_solvers(
     args.solver_name,
     NFEs=args.steps,
@@ -126,6 +120,7 @@ dis_model = DiscretizeModelWrapper( #Changed through LTT
         time_mode = trainer.time_mode,
     )
 
+best_loss = 1
 for i in range(args.training_rounds_v1):
     for iter, batch in enumerate(trainer.train_loader):
         img, latent, _ = batch
@@ -137,7 +132,7 @@ for i in range(args.training_rounds_v1):
         x_next_computed = []
         x_next_list_computed = []
         for x in x_next_list:
-            x_next, x_list = trainer.solver.delta_sample_simple(
+            x_next, x_list, _ = trainer.solver.delta_sample_simple(
                 model_fn=trainer.net,
                 delta_ltt=delta_ltt_model,
                 x=x.unsqueeze(0),
@@ -147,6 +142,7 @@ for i in range(args.training_rounds_v1):
                 NFEs=trainer.steps,
                 condition=None,
                 unconditional_condition=None,
+                return_bottleneck = return_bottleneck,
                 **trainer.solver_extra_params,
             )
             x_next_computed.append(x_next)#This was wrong the whole time?
@@ -160,6 +156,8 @@ for i in range(args.training_rounds_v1):
         writer.add_scalar(f"Train/Loss", loss.item(), i*len(trainer.train_loader)+iter) 
         optimizer.step() #does this ever change?
         optimizer.zero_grad()
+        scheduler.step()
+
 
         if iter % 500 == 0:
             
@@ -175,7 +173,7 @@ for i in range(args.training_rounds_v1):
                     x_next_computed = []
                     x_next_list_computed = []
                     for x in x_next_list:
-                        x_next, x_list = trainer.solver.delta_sample_simple(
+                        x_next, x_list, _ = trainer.solver.delta_sample_simple(
                             model_fn=trainer.net,
                             delta_ltt=delta_ltt_model,
                             x=x.unsqueeze(0),
@@ -185,6 +183,7 @@ for i in range(args.training_rounds_v1):
                             NFEs=trainer.steps,
                             condition=None,
                             unconditional_condition=None,
+                            return_bottleneck = return_bottleneck,
                             **trainer.solver_extra_params,
                         )
                         x_next_computed.append(x_next)#This was wrong the whole time?
@@ -194,14 +193,15 @@ for i in range(args.training_rounds_v1):
                     loss = loss_vector.mean()
                     visual(x_next_computed, f"{process_img_dir}/valid_{i*len(trainer.train_loader)+iter}.png")
                     writer.add_scalar(f"Valid/Loss", loss.item(), i*len(train_dataset)+iter) 
-                    print(f"Validated on iter{i*len(trainer.train_loader)+iter}: {loss.item()}")
+                    current_lr = scheduler.get_last_lr()[0]
+                    print(f"Validated on iter {i*len(trainer.train_loader)+iter}: Loss = {loss.item()}, Learning Rate = {current_lr}")
+                
+                if loss < best_loss:
+                    best_loss = loss
+                    torch.save(delta_ltt_model.state_dict(), model_path)
                 delta_ltt_model.train()
-    scheduler.step()
 
 
-# Save the model
-model_path = os.path.join(model_dir, run_name)
-torch.save(delta_ltt_model.state_dict(), model_path)
 
 
 

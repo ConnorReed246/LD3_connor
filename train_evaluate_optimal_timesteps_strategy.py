@@ -78,7 +78,7 @@ model = LTT_model(steps = steps, mlp_dropout=args.mlp_dropout)
 loss_fn = nn.MSELoss()#CrossEntropyLoss()
 model = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)  # Decrease LR by a factor of 0.1 every 1 epochs
+scheduler = lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.95)  # Decrease LR by a factor of 0.1 every 1 epochs
 
 
 
@@ -223,26 +223,12 @@ for i in range(args.training_rounds_v1):
                     model.train()
 
         optimizer.zero_grad()
-    scheduler.step()
+        scheduler.step()
 
         #loss_list.append(min(loss.item(),0.1))
 
 
 
-
-
-# plt.plot(loss_list, label = "loss")  # Plot the loss curve
-# window_size = 100
-# rolling_window = np.convolve(loss_list, np.ones(window_size)/window_size, mode='valid')
-# plt.plot(rolling_window, label='rolling window average')
-# plt.plot(valid_loss_index, valid_loss_list, label = "valid loss")
-
-# plt.legend()
-
-# #log scale
-# # plt.yscale('log')
-# # plt.savefig(f"loss_curve_lr{learning_rate}_batch{train_batch_size}_with_dropout_0.5.png")
-# plt.savefig("PreTrained_LossCurve.png")
 
 # Close the TensorBoard writer
 writer.close()

@@ -2,7 +2,7 @@ import os
 from .edm_uncond import get_pretrained_sde_model
 from .latent_diff import get_pretrained_ldm_model, get_pretrained_conditioned_ldm_model
 from .condition_loader import RandomNumberIterator, UniformNumberIterator, TextFileIterator, HPSv2Iterator
-def prepare_stuff(args):
+def prepare_stuff(args, return_bottleneck = False):
     if args.model == 'edm':
         prepare_model_fn = get_pretrained_sde_model
     elif args.model == 'latent_diff':
@@ -11,7 +11,7 @@ def prepare_stuff(args):
         prepare_model_fn = get_pretrained_conditioned_ldm_model
     else:
         raise NotImplementedError 
-    return prepare_model_fn(args)
+    return prepare_model_fn(args, return_bottleneck)
 
 def prepare_condition_loader(model_type, model, scale, condition, sampling_batch_size, num_samples_per_class=50, num_prompt=5):
     if model_type == 'edm' or model_type == 'latent_diff':

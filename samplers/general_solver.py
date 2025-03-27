@@ -202,26 +202,37 @@ class ODESolver(ABC):
         """
         return self.model(x, t) #this is where we call the model to predict the noise
 
-    def data_prediction_fn(self, x, t):
+    def data_prediction_fn(self, x, t, return_bottleneck):
         """
         Return the data prediction model (with corrector).
         """
-        noise = self.noise_prediction_fn(x, t) #Noise prediction step
+
+        if return_bottleneck:
+            noise, bottleneck = self.noise_prediction_fn(x, t)
+        else:
+            noise = self.noise_prediction_fn(x, t)
+
         alpha_t, sigma_t = self.noise_schedule.marginal_alpha(t), self.noise_schedule.marginal_std(t)
         x0 = (x - sigma_t * noise) / alpha_t #remove noise from the data	
         # TODO add visualisation of x0
         if self.correcting_x0_fn is not None:
-            x0 = self.correcting_x0_fn(x0)
+            x0 = self.correcting_x0_fn(x0).float()
+
+        if return_bottleneck:
+            return x0, bottleneck
         return x0
 
-    def model_fn(self, x, t):
+    def model_fn(self, x, t, return_bottleneck=False):
         """
         Convert the model to the noise prediction model or the data prediction model. 
         """
         if self.predict_x0:
-            return self.data_prediction_fn(x, t).float() #TODO: does this change anything?
+            return self.data_prediction_fn(x, t, return_bottleneck) #TODO: does this change anything?
         else:
+            print("THIS IS NOT IMPLEMENTED YET")
+            exit()
             return self.noise_prediction_fn(x, t).float()
+        
 
     def get_time_steps(self, skip_type, t_T, t_0, N, device):
         """Compute the intermediate time steps for sampling.
