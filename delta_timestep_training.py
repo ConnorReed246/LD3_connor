@@ -43,7 +43,6 @@ os.makedirs(model_dir, exist_ok=True)
 
 lpips_loss_fn = lpips.LPIPS(net='vgg').to(device)
 
-
 def custom_collate_fn(batch):
     collated_batch = []
     for samples in zip(*batch):

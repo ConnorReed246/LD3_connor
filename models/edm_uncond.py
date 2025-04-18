@@ -12,7 +12,7 @@ def model_wrapper(model, noise_schedule, return_bottleneck, class_labels=None, u
             global bottleneck_output
             bottleneck_output = output
     
-    model.model.enc["8x8_block3"].affine.register_forward_hook(hook_fn)
+        model.model.enc["8x8_block3"].affine.register_forward_hook(hook_fn)
 
     def noise_pred_fn(x, t_continuous, cond=None):
         t_input = t_continuous
