@@ -368,8 +368,6 @@ class LD3Trainer:
         torch.save(snapshot, os.path.join(self.snapshot_path, f"best_t_steps_{self.cur_iter}.pt"))
 
         # save dataloader, valid_loader, valid_only_loader
-        pickle.dump(self.train_data, open(os.path.join(self.snapshot_path, "train_data.pkl"), "wb"))
-        pickle.dump(self.valid_data, open(os.path.join(self.snapshot_path, "valid_data.pkl"), "wb"))
     
     def _load_checkpoint(self, reload_data:bool):
         if self._is_in_version_1():
@@ -379,12 +377,6 @@ class LD3Trainer:
             
         self.params1.data = snapshot["params1"].cuda()
         self.params2.data = snapshot["params2"].cuda()
-        
-        if reload_data:
-            self.train_data = pickle.load(open(os.path.join(self.snapshot_path, "train_data.pkl"), "rb"))
-            self.valid_data = pickle.load(open(os.path.join(self.snapshot_path, "valid_data.pkl"), "rb"))
-            self._create_train_loader()
-            self._create_valid_loaders()
 
     def _examine_checkpoint(self, iter: int) -> None:
         logging.info(f"{self._current_version} Saving snapshot at iter {iter}")

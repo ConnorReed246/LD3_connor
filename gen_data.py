@@ -177,6 +177,16 @@ def main(args):
     print(f"Generation time: {end - start}")
 
 
+class LatentGenerator:
+    def __init__(self, train: bool = True):
+        self.generator = torch.Generator(torch.device("cpu")) # Independent RNG validation seed: "validation"-
+        self.idx_transformation = lambda x : x + 1 if train else - (x + 1) #depending on if we are in a train or validation set to range [1, max] or [-max, 1]
+
+    def generate_latent(self, idx, shape=(3, 32, 32)):
+        self.generator = self.generator.manual_seed(self.idx_transformation(idx))
+        return torch.randn(shape, device=torch.device("cpu"), generator=self.generator) 
+
+
 if __name__ == "__main__":
     args = parse_arguments()
     set_seed_everything(args.seed)
