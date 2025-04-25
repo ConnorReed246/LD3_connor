@@ -42,7 +42,7 @@ model_dir = "runs/RandomModels"
 steps = 5
 
 learning_rate = args.lr_time_1
-run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_nTrain{args.num_train}_{args.log_suffix}"
+run_name = f"model_N{args.steps}_lr{learning_rate}_batch{args.main_train_batch_size}_nTrain{args.num_train}_{args.log_suffix}"
 log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_global_timesteps/{run_name}"
 model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_global_timesteps/models"
 model_path = os.path.join(model_dir, run_name)
