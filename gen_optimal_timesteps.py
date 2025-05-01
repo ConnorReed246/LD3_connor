@@ -15,6 +15,7 @@ from utils import (
 )
 from models import prepare_stuff
 import matplotlib.pyplot as plt
+from torchvision.utils import save_image
 
 
 def gen_optimal_timesteps(args):
@@ -25,12 +26,18 @@ def gen_optimal_timesteps(args):
     train_or_validation = args.train_or_validation
     train_bool = True if train_or_validation == "train" else False
     dir = os.path.join(args.data_dir, train_or_validation)
-    dataset = LTTDataset(os.path.join(dir), train_flag= train_bool, size=500000)
+    dataset = LTTDataset(os.path.join(dir), train_flag=train_bool, size=50000)
 
-    rng_path = os.path.join(dir, "opt_t_rng_states") #_clever_initialisation
+
+    rng_path = os.path.join(dir, f"opt_t_final_{args.steps}_rng_states") #_clever_initialisation
     os.makedirs(rng_path, exist_ok=True)
-    opt_t_path = os.path.join(dir, "opt_t") #_clever_initialisation
+    opt_t_path = os.path.join(dir, f"opt_t_final_{args.steps}") #_clever_initialisation
     os.makedirs(opt_t_path, exist_ok=True)
+    
+    save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/fid-generated"
+    dir_name = f"optimal_n{args.steps}"
+    dir_path = os.path.join(save_path, dir_name)
+    os.makedirs(dir_path, exist_ok=True)
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
@@ -70,7 +77,7 @@ def gen_optimal_timesteps(args):
         solver=solver,
         solver_name=args.solver_name,
         order=args.order,
-        steps=steps,
+        steps=args.steps,
         prior_bound=args.prior_bound,
         resolution=latent_resolution,
         channels=latent_channel,
@@ -90,6 +97,7 @@ def gen_optimal_timesteps(args):
 
 
     rng_files = [f for f in os.listdir(rng_path) if f.startswith("rng_state_") and f.endswith(".pt")]
+
     if rng_files:
         latest_rng_file = max(rng_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
         count = int(latest_rng_file.split('_')[-1].split('.')[0])
@@ -133,10 +141,10 @@ def gen_optimal_timesteps(args):
                 x_next = trainer.noise_schedule.prior_transformation(latent)
                 x_next = trainer.solver.sample_simple(
                     model_fn=trainer.net,
-                    x=x_next,
+                    x=x_next.unsqueeze(0),
                     timesteps=timestep[0],
                     order=trainer.order,
-                    NFEs=trainer.steps,
+                    NFEs=args.steps,
                     **trainer.solver_extra_params,
                     )
                 x_next = trainer.decoding_fn(x_next)
@@ -159,6 +167,8 @@ def gen_optimal_timesteps(args):
         # print("params_softmax_list: \n", params_softmax_list)
         torch.save((params_softmax_list, loss_list), os.path.join(opt_t_path, f'optimal_params_{count:06d}_N{args.n_trials}_steps{args.steps}.pth'))
         # print("-------------------------------")
+
+        save_image(x_next.squeeze(), os.path.join(dir_path, f"{count}.png"), normalize=True) #TODO REMOVE THIS IF WE DON'T WANT TO SAVE IMAGES
         
         count += 1
         if count % 100 == 0:

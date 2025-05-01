@@ -25,14 +25,13 @@ set_seed_everything(args.seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Dataset
 data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
-model_dir = "runs/RandomModels"
-steps = 5
+steps = args.steps
 optimal_params_path = args.data_dir #opt_t_clever_initialisation
-return_bottleneck = True
+return_bottleneck = args.return_bottleneck
 
 # Initialize TensorBoard writer
 learning_rate = args.lr_time_1
-run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_nTrain{args.num_train}_{args.log_suffix}"
+run_name = f"N{steps}_model_lr{learning_rate}_batch{args.main_train_batch_size}_nTrain{args.num_train}_{args.log_suffix}"
 log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_delta_timesteps/{run_name}"
 model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_delta_timesteps/models"
 model_path = os.path.join(model_dir, run_name)
@@ -120,6 +119,7 @@ dis_model = DiscretizeModelWrapper( #Changed through LTT
     )
 
 best_loss = 1
+
 for i in range(args.training_rounds_v1):
     for iter, batch in enumerate(trainer.train_loader):
         img, latent, _ = batch
@@ -160,7 +160,7 @@ for i in range(args.training_rounds_v1):
 
         if iter % 500 == 0:
             
-            visual(torch.cat(x_list),  f"{process_img_dir}/train_{i*len(trainer.train_loader)+iter}.png") 
+            #visual(torch.cat(x_list),  f"{process_img_dir}/train_{i*len(trainer.train_loader)+iter}.png") 
             with torch.no_grad():
                 delta_ltt_model.eval()
                 for batch in trainer.valid_only_loader:
@@ -190,7 +190,7 @@ for i in range(args.training_rounds_v1):
                     x_next_computed = torch.cat(x_next_computed, dim=0) 
                     loss_vector = trainer.loss_fn(img.float(), x_next_computed.float()).squeeze()
                     loss = loss_vector.mean()
-                    visual(x_next_computed, f"{process_img_dir}/valid_{i*len(trainer.train_loader)+iter}.png")
+                    #visual(x_next_computed, f"{process_img_dir}/valid_{i*len(trainer.train_loader)+iter}.png")
                     writer.add_scalar(f"Valid/Loss", loss.item(), i*len(train_dataset)+iter) 
                     current_lr = scheduler.get_last_lr()[0]
                     print(f"Validated on iter {i*len(trainer.train_loader)+iter}: Loss = {loss.item()}, Learning Rate = {current_lr}")

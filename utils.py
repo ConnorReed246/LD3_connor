@@ -159,7 +159,7 @@ def parse_arguments(args_list = None):
     other_group.add_argument("--log_suffix", type = str, default="", help="Log suffix")
     other_group.add_argument("--n_trials", type = int, default=10, help="Number of times to run the same experiment before taking best params")
     other_group.add_argument("--train_or_validation", type = str, default="train", help="train or validation")
-    
+    other_group.add_argument("--return_bottleneck", type=str2bool, nargs='?', const=True, default=False, help="Return bottleneck or not.")
     if args_list is not None:
         args = parser.parse_args(args_list)
     else:

@@ -24,18 +24,27 @@ set_seed_everything(args.seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Dataset
 data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
-model_dir = "runs/RandomModels"
-steps = 5
+steps = args.steps
 optimal_params_path = args.data_dir #opt_t_clever_initialisation
 
 # Initialize TensorBoard writer
 learning_rate = args.lr_time_1
 run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_{args.log_suffix}"
-log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_optimal_timesteps/{run_name}"
+log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_timesteps/{run_name}"
+model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_timesteps/models"
+model_path = os.path.join(model_dir, run_name)
 writer = SummaryWriter(log_dir)
 
 lpips_loss_fn = lpips.LPIPS(net='vgg').to(device)
 
+def custom_collate_fn(batch):
+    collated_batch = []
+    for samples in zip(*batch):
+        if any(item is None for item in samples):
+            collated_batch.append(None)
+        else:
+            collated_batch.append(torch.utils.data._utils.collate.default_collate(samples))
+    return collated_batch
 # Initialize diffusion model components
 
 wrapped_model, _, decoding_fn, noise_schedule, latent_resolution, latent_channel, _, _ = prepare_stuff(args)
@@ -48,36 +57,15 @@ solver, steps, solver_extra_params = get_solvers(
 )
 order = args.order  
 
-def custom_collate_fn(batch):
-    collated_batch = []
-    for samples in zip(*batch):
-        if any(item is None for item in samples):
-            collated_batch.append(None)
-        else:
-            collated_batch.append(torch.utils.data._utils.collate.default_collate(samples))
-    return collated_batch
-
 valid_dataset = LTTDataset(dir=os.path.join(data_dir, "validation"), size=args.num_valid, train_flag=False, use_optimal_params=True,optimal_params_path=optimal_params_path) 
 train_dataset = LTTDataset(dir=os.path.join(data_dir, "train"), size=args.num_train, train_flag=True, use_optimal_params=True, optimal_params_path=optimal_params_path)
 
-# train_loader = DataLoader(
-#     dataset=train_dataset,
-#     collate_fn=custom_collate_fn,
-#     batch_size=train_batch_size,  # Adjust batch size as needed
-#     shuffle=True,
-# )
-
-# valid_loader = DataLoader(
-#     dataset=valid_dataset,
-#     collate_fn=custom_collate_fn,
-#     batch_size=50,  # Adjust batch size as needed
-#     shuffle=False,
-# )
 
 model = LTT_model(steps = steps, mlp_dropout=args.mlp_dropout)
 loss_fn = nn.MSELoss()#CrossEntropyLoss()
 model = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+step_size = args.training_rounds_v1 * len(train_dataset) // args.main_train_batch_size // 100 #we decrease 100 times which roughly equals a decrease of 99% of learning rate in the end
 scheduler = lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.95)  # Decrease LR by a factor of 0.1 every 1 epochs
 
 
@@ -160,23 +148,20 @@ def calculate_lpips_loss(model, latent, img, device):
     model.train()
     return lpips_loss
 
-# print(model)
-loss_list = []
-valid_loss_list = []
-valid_loss_index = []
+best_loss = 1
 # Forward pass
 for i in range(args.training_rounds_v1):
     print(f"\n epoch: {i}")
-    for j, batch in enumerate(trainer.train_loader):
+    for iter, batch in enumerate(trainer.train_loader):
         img, latent, optimal_params = batch
 
+        img = img.to(device)
         latent = latent.to(device)
         optimal_params = optimal_params.to(device)
         # optimal_params = torch.tensor([0.1140, 0.1652, 0.1298, 0.1056, 0.1084, 0.3770], device='cuda:0') 
         # optimal_params = torch.unsqueeze(optimal_params, 0).repeat(latent.size(0), 1)
 
         outputs = model(latent)
-
         # print(f"outputs: {outputs}")
         # print(f"optimal_params: {optimal_params}")
         
@@ -188,9 +173,9 @@ for i in range(args.training_rounds_v1):
         optimizer.step()
 
         # Log training loss
-        writer.add_scalar('Loss/train', loss.item(), i * len(trainer.train_loader) + j)
+        writer.add_scalar('Loss/train', loss.item(), i * len(trainer.train_loader) + iter)
 
-        if j % 10 == 0:
+        if iter % 10 == 0:
 
             # for name, param in model.named_parameters():
             #     if param.grad is not None:
@@ -210,16 +195,14 @@ for i in range(args.training_rounds_v1):
                     loss = loss_fn(outputs, optimal_params)
 
                     # Log validation loss
-                    writer.add_scalar('Loss/valid', loss.item(), i * len(trainer.train_loader) + j)
-                    print(f"Iteration {i * len(trainer.train_loader) + j}, Validation loss: {loss.item()}")
-
-
+                    writer.add_scalar('Loss/valid', loss.item(), i * len(trainer.train_loader) + iter)
+                    print(f"Iteration {i * len(trainer.train_loader) + iter}, Validation loss: {loss.item()}")
 
                     #every 500 iterations, calculate lpips loss
-                    if j % 50 == 0:
+                    if iter % 50 == 0:
                         lpips_loss = calculate_lpips_loss(model, latent, img, device)
-                        writer.add_scalar('Loss/LPIPS', lpips_loss, i * len(trainer.train_loader) + j)
-                        print(f"Iteration {i * len(trainer.train_loader) + j}, LPIPS loss: {lpips_loss}")
+                        writer.add_scalar('Loss/LPIPS', lpips_loss, i * len(trainer.train_loader) + iter)
+                        print(f"Iteration {i * len(trainer.train_loader) + iter}, LPIPS loss: {lpips_loss}")
                     model.train()
 
         optimizer.zero_grad()

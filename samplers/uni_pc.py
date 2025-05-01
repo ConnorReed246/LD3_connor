@@ -216,6 +216,7 @@ class UniPC(ODESolver):
     
 
     def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_bottleneck=False, condition=None, unconditional_condition=None, **kwargs):
+        fix_last_step = False
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
         total_steps = steps
         t1 = torch.tensor(start_timestep, device=x.device)
@@ -239,7 +240,10 @@ class UniPC(ODESolver):
             #shift to be between 0.0001 and 0.9999
             delta_timestep_ratio = torch.clamp(delta_timestep_ratio, 0.0001, 0.9999)
             
-            t1 = t1 * delta_timestep_ratio.squeeze()
+            if step != steps or not fix_last_step:
+                t1 = t1 * delta_timestep_ratio.squeeze()
+            else:
+                t1 = torch.tensor(0.002, device=x.device) 
 
 
             if step < order:

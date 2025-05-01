@@ -23,9 +23,9 @@ def model_wrapper(model, noise_schedule, return_bottleneck, class_labels=None, u
         alpha_t, sigma_t = noise_schedule.marginal_alpha(t_continuous), noise_schedule.marginal_std(t_continuous)
         
         if return_bottleneck:
-            return ((x - alpha_t[:, None, None, None] * output) / sigma_t[:, None, None, None]).to(torch.float64), bottleneck_output
+            return ((x - alpha_t[:, None, None, None] * output) / sigma_t[:, None, None, None]).to(torch.float32), bottleneck_output.to(torch.float32) #TODO this might break
         else:
-            return ((x - alpha_t[:, None, None, None] * output) / sigma_t[:, None, None, None]).to(torch.float64)
+            return ((x - alpha_t[:, None, None, None] * output) / sigma_t[:, None, None, None]).to(torch.float32)
 
     def model_fn(x, t_continuous, *args, **kwargs):
         return noise_pred_fn(x, t_continuous, class_labels)
