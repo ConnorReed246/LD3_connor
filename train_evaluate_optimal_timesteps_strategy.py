@@ -25,13 +25,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Dataset
 data_dir = 'train_data/train_data_cifar10/uni_pc_NFE20_edm_seed0'
 steps = args.steps
-optimal_params_path = args.data_dir #opt_t_clever_initialisation
+optimal_params_path = f"opt_t_final_{args.steps}" #opt_t_clever_initialisation
 
 # Initialize TensorBoard writer
 learning_rate = args.lr_time_1
 run_name = f"model_lr{learning_rate}_batch{args.main_train_batch_size}_{args.log_suffix}"
-log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_timesteps/{run_name}"
-model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_timesteps/models"
+log_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_optimal_timesteps/{run_name}"
+model_dir = f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_optimal_timesteps/models"
 model_path = os.path.join(model_dir, run_name)
 writer = SummaryWriter(log_dir)
 
@@ -57,7 +57,7 @@ solver, steps, solver_extra_params = get_solvers(
 )
 order = args.order  
 
-valid_dataset = LTTDataset(dir=os.path.join(data_dir, "validation"), size=args.num_valid, train_flag=False, use_optimal_params=True,optimal_params_path=optimal_params_path) 
+valid_dataset = LTTDataset(dir=os.path.join(data_dir, "validation"), size=args.num_valid, train_flag=False, use_optimal_params=False,optimal_params_path=optimal_params_path) #Fix so that it uses optimal params
 train_dataset = LTTDataset(dir=os.path.join(data_dir, "train"), size=args.num_train, train_flag=True, use_optimal_params=True, optimal_params_path=optimal_params_path)
 
 

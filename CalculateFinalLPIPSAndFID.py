@@ -304,36 +304,86 @@ if __name__ == "__main__":
 
 
 
-    print("Optimal Timesteps")
-    n_steps = 5
-    trainer, dis_model, delta_ltt_model, device, steps = setup(steps = n_steps, use_optimal_params=True)
-    generated_images = []
-    with torch.no_grad():
-        for batch in tqdm(trainer.train_loader, desc="Generating Images with Optimal Timesteps"):
-            _, latent, optimal_params = batch
-            latent = latent.to(device)
-            optimal_params = optimal_params.to(device)
-            timesteps = dis_model.convert(optimal_params)
-            for x, timestep in zip(latent, timesteps):
-                x_next = trainer.noise_schedule.prior_transformation(x)
-                x_next = trainer.solver.sample_simple(
-                    model_fn=trainer.net,
-                    x=x_next.unsqueeze(0),
-                    timesteps=timestep,
-                    order=trainer.order,
-                    NFEs=trainer.steps,
-                    **trainer.solver_extra_params,
-                )
-            # x_next = trainer.decoding_fn(x_next) TODO test if this does anything
-                generated_images.append(x_next)
+    # print("Optimal Timesteps")
+    # n_steps = 5
+    # trainer, dis_model, delta_ltt_model, device, steps = setup(steps = n_steps, use_optimal_params=True)
+    # generated_images = []
+    # with torch.no_grad():
+    #     for batch in tqdm(trainer.train_loader, desc="Generating Images with Optimal Timesteps"):
+    #         _, latent, optimal_params = batch
+    #         latent = latent.to(device)
+    #         optimal_params = optimal_params.to(device)
+    #         timesteps = dis_model.convert(optimal_params)
+    #         for x, timestep in zip(latent, timesteps):
+    #             x_next = trainer.noise_schedule.prior_transformation(x)
+    #             x_next = trainer.solver.sample_simple(
+    #                 model_fn=trainer.net,
+    #                 x=x_next.unsqueeze(0),
+    #                 timesteps=timestep,
+    #                 order=trainer.order,
+    #                 NFEs=trainer.steps,
+    #                 **trainer.solver_extra_params,
+    #             )
+    #         # x_next = trainer.decoding_fn(x_next) TODO test if this does anything
+    #             generated_images.append(x_next)
 
-        generated_images = torch.cat(generated_images, dim=0)
-        save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/fid-generated"
-        dir_name = f"optimal_n{n_steps}"
-        dir_path = os.path.join(save_path, dir_name)
-        os.makedirs(dir_path, exist_ok=True)
-        for i, img in enumerate(generated_images):
-            save_image(img, os.path.join(dir_path, f"{i}.png"), normalize=True)
-    torch.cuda.empty_cache()
+    #     generated_images = torch.cat(generated_images, dim=0)
+    #     save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/fid-generated"
+    #     dir_name = f"optimal_n{n_steps}"
+    #     dir_path = os.path.join(save_path, dir_name)
+    #     os.makedirs(dir_path, exist_ok=True)
+    #     for i, img in enumerate(generated_images):
+    #         save_image(img, os.path.join(dir_path, f"{i}.png"), normalize=True)
+    # torch.cuda.empty_cache()
+
+
+    print("zero-shot")
+    for n_step in [3, 5, 6, 7, 10]:
+        # Generate 50k images for FID/IS
+        print(f"Generating 50k images for zero-shot n={n_step}")
+        set_seed_everything(0)
+        trainer, dis_model, _, device, steps = setup(steps=n_step)
+        batch_size = 500
+        number_of_fid_images = 50000
+        shape = (batch_size, 3, 32, 32)
+        generator = torch.Generator(torch.device(device))
+        ltt_model = LTT_model(steps=n_step)
+        state_dict = torch.load(
+            f"/netpool/homes/connor/DiffusionModels/LD3_connor/runs_zeroshot_timesteps/models/steps_{n_step}_model_lr0.0005_batch3_final_runs",
+            weights_only=True
+        )
+        ltt_model.load_state_dict(state_dict)
+        ltt_model = ltt_model.to(device)
+        ltt_model.eval()
+        generated_images = []
+        with torch.no_grad():
+            for i in tqdm(range(number_of_fid_images // batch_size), desc=f"Zero-shot FID images n={n_step}"):
+                latent = torch.randn(shape, device=device, generator=generator)
+                timesteps = dis_model.convert(ltt_model(latent))
+                x_next_finished = []
+                for timestep, single_latent in zip(timesteps, latent):
+                    x_next = trainer.noise_schedule.prior_transformation(single_latent)
+                    x_next = trainer.solver.sample_simple(
+                        model_fn=trainer.net,
+                        x=x_next.unsqueeze(0),
+                        timesteps=timestep,
+                        order=trainer.order,
+                        NFEs=n_step,
+                        **trainer.solver_extra_params,
+                    )
+                    x_next = trainer.decoding_fn(x_next)
+                    x_next_finished.append(x_next)
+                x_next = torch.cat(x_next_finished, dim=0)
+                generated_images.append(x_next)
+            generated_images = torch.cat(generated_images, dim=0)
+            save_path = "/netpool/homes/connor/DiffusionModels/LD3_connor/fid-generated"
+            dir_name = f"zeroshot_n{n_step}"
+            dir_path = os.path.join(save_path, dir_name)
+            os.makedirs(dir_path, exist_ok=True)
+            for i, img in enumerate(generated_images):
+                save_image(img, os.path.join(dir_path, f"{i}.png"), normalize=True)
+        torch.cuda.empty_cache()
+
+    
                 
         

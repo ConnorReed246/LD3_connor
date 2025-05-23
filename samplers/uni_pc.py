@@ -215,8 +215,7 @@ class UniPC(ODESolver):
         return x #this is the image
     
 
-    def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_bottleneck=False, condition=None, unconditional_condition=None, **kwargs):
-        fix_last_step = False
+    def delta_sample_simple(self, model_fn, delta_ltt, x, steps, start_timestep = 80, order=2, lower_order_final=True, return_bottleneck=False, condition=None, unconditional_condition=None, fix_last_step = False, **kwargs):
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])), condition, unconditional_condition)
         total_steps = steps
         t1 = torch.tensor(start_timestep, device=x.device)

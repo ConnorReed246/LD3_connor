@@ -142,6 +142,7 @@ for i in range(args.training_rounds_v1):
                 condition=None,
                 unconditional_condition=None,
                 return_bottleneck = return_bottleneck,
+                fix_last_step=True,
                 **trainer.solver_extra_params,
             )
             x_next_computed.append(x_next)#This was wrong the whole time?
@@ -183,6 +184,7 @@ for i in range(args.training_rounds_v1):
                             condition=None,
                             unconditional_condition=None,
                             return_bottleneck = return_bottleneck,
+                            fix_last_step=True,
                             **trainer.solver_extra_params,
                         )
                         x_next_computed.append(x_next)#This was wrong the whole time?
